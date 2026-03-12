@@ -306,26 +306,30 @@ if i_eqShow and not na(swPL)
 // ══════════════════════════════════════════════════════════════════
 if i_swept
     // Swing highs swept when close > level (stop hunt above BSL)
-    for i = 0 to array.size(swh_lns) - 1
-        if not array.get(swh_swpt, i)
-            lvl = array.get(swh_lvl, i)
-            if close > lvl
-                array.set(swh_swpt, i, true)
-                line.set_color(array.get(swh_lns, i), color.new(C_SWEPT, 30))
-                line.set_style(array.get(swh_lns, i), line.style_dotted)
-                box.set_bgcolor(array.get(swh_bxs, i), color.new(C_SWEPT, 93))
-                box.set_border_color(array.get(swh_bxs, i), color.new(C_SWEPT, 60))
+    swh_sz = array.size(swh_lns)
+    if swh_sz > 0
+        for iH = 0 to swh_sz - 1
+            if not array.get(swh_swpt, iH)
+                lvl = array.get(swh_lvl, iH)
+                if close > lvl
+                    array.set(swh_swpt, iH, true)
+                    line.set_color(array.get(swh_lns, iH), color.new(C_SWEPT, 30))
+                    line.set_style(array.get(swh_lns, iH), line.style_dotted)
+                    box.set_bgcolor(array.get(swh_bxs, iH), color.new(C_SWEPT, 93))
+                    box.set_border_color(array.get(swh_bxs, iH), color.new(C_SWEPT, 60))
 
     // Swing lows swept when close < level
-    for i = 0 to array.size(swl_lns) - 1
-        if not array.get(swl_swpt, i)
-            lvl = array.get(swl_lvl, i)
-            if close < lvl
-                array.set(swl_swpt, i, true)
-                line.set_color(array.get(swl_lns, i), color.new(C_SWEPT, 30))
-                line.set_style(array.get(swl_lns, i), line.style_dotted)
-                box.set_bgcolor(array.get(swl_bxs, i), color.new(C_SWEPT, 93))
-                box.set_border_color(array.get(swl_bxs, i), color.new(C_SWEPT, 60))
+    swl_sz = array.size(swl_lns)
+    if swl_sz > 0
+        for iL = 0 to swl_sz - 1
+            if not array.get(swl_swpt, iL)
+                lvl = array.get(swl_lvl, iL)
+                if close < lvl
+                    array.set(swl_swpt, iL, true)
+                    line.set_color(array.get(swl_lns, iL), color.new(C_SWEPT, 30))
+                    line.set_style(array.get(swl_lns, iL), line.style_dotted)
+                    box.set_bgcolor(array.get(swl_bxs, iL), color.new(C_SWEPT, 93))
+                    box.set_border_color(array.get(swl_bxs, iL), color.new(C_SWEPT, 60))
 
 // ══════════════════════════════════════════════════════════════════
 //  FOOTPRINT DELTA LABELS
