@@ -10,7 +10,7 @@ grpSW   = "Swing Structure"
 i_swLeft  = input.int(5,    "Left Bars",           minval=1, maxval=20,  group=grpSW)
 i_swRight = input.int(5,    "Right Bars",          minval=1, maxval=20,  group=grpSW)
 i_swShow  = input.bool(true, "Show Swing Levels",                        group=grpSW)
-i_swMax   = input.int(6,    "Max Levels",          minval=2, maxval=20,  group=grpSW)
+i_swMax   = input.int(4,    "Max Levels",          minval=2, maxval=20,  group=grpSW)
 
 grpEQ   = "Equal Highs / Lows"
 i_eqShow  = input.bool(true,  "Show EQH / EQL",                         group=grpEQ)
@@ -25,7 +25,7 @@ i_htfShow = input.bool(true,       "Show HTF Swings",                   group=gr
 i_htfTF   = input.timeframe("60",  "Timeframe",                         group=grpHTF)
 
 grpFP   = "Footprint Delta (Premium)"
-i_fpShow  = input.bool(true, "Show Volume Delta",                       group=grpFP)
+i_fpShow  = input.bool(false, "Show Volume Delta",                      group=grpFP)
 i_fpTicks = input.int(4,     "Ticks Per Row",      minval=1,            group=grpFP)
 
 grpVis  = "Visual"
@@ -152,7 +152,7 @@ if i_swShow and not na(swPH)
     int x1 = bar_index - i_swRight
     int x2 = x1 + i_ext
     l = line.new(x1, swPH, x2, swPH,
-            color=color.new(C_BSL_3, 30), width=1, style=line.style_dotted)
+            color=color.new(C_BSL_3, 50), width=1, style=line.style_dotted)
     array.push(swh_lns,  l)
     array.push(swh_lvl,  swPH)
     array.push(swh_bars, x1)
@@ -168,7 +168,7 @@ if i_swShow and not na(swPL)
     int x1 = bar_index - i_swRight
     int x2 = x1 + i_ext
     l = line.new(x1, swPL, x2, swPL,
-            color=color.new(C_SSL_3, 30), width=1, style=line.style_dotted)
+            color=color.new(C_SSL_3, 50), width=1, style=line.style_dotted)
     array.push(swl_lns,  l)
     array.push(swl_lvl,  swPL)
     array.push(swl_bars, x1)
@@ -300,11 +300,7 @@ if i_swept
                 lvl = array.get(swh_lvl, iH)
                 if close > lvl
                     array.set(swh_swpt, iH, true)
-                    line.set_color(array.get(swh_lns, iH), color.new(C_SWEPT, 60))
-                    line.set_style(array.get(swh_lns, iH), line.style_dotted)
-                    label.new(bar_index, lvl,
-                         style=label.style_xcross, color=color.new(C_SWEPT, 30),
-                         size=size.tiny)
+                    line.set_color(array.get(swh_lns, iH), color.new(C_SWEPT, 70))
 
     swl_sz = array.size(swl_lns)
     if swl_sz > 0
@@ -313,74 +309,72 @@ if i_swept
                 lvl = array.get(swl_lvl, iL)
                 if close < lvl
                     array.set(swl_swpt, iL, true)
-                    line.set_color(array.get(swl_lns, iL), color.new(C_SWEPT, 60))
-                    line.set_style(array.get(swl_lns, iL), line.style_dotted)
-                    label.new(bar_index, lvl,
-                         style=label.style_xcross, color=color.new(C_SWEPT, 30),
-                         size=size.tiny)
+                    line.set_color(array.get(swl_lns, iL), color.new(C_SWEPT, 70))
 
 // ══════════════════════════════════════════════════════════════════
-//  SECTION 6 — FOOTPRINT DELTA
-//  When price is within 0.3% of a swing level, show a small
-//  volume delta badge directly on that bar.
+//  SECTION 6 — FOOTPRINT DELTA  (off by default)
+//  Shows volume delta ONCE per active level, only at the right edge
+//  of the nearest swing line.  Green = buyers aggressive, red = sellers.
+//  Enable in settings when you want to see order flow at key levels.
 // ══════════════════════════════════════════════════════════════════
 
-if i_fpShow and not na(fpDelta) and barstate.isconfirmed
-    float prox = 0.003
+var label fpLabel = na
+
+if i_fpShow and not na(fpDelta) and barstate.islast
+    label.delete(fpLabel)
+
+    // Find the nearest non-swept level to current close
+    float nearestLvl  = na
+    float nearestDist = 1.0e10
 
     swh_sz2 = array.size(swh_lvl)
     if swh_sz2 > 0
         for iH2 = 0 to swh_sz2 - 1
-            lvl = array.get(swh_lvl, iH2)
-            if math.abs(close - lvl) / lvl < prox
-                dCol = fpDelta >= 0 ? color.new(C_BSL_1, 0) : color.new(C_SSL_1, 0)
-                label.new(bar_index, lvl, text=str.tostring(math.round(fpDelta)),
-                     style=label.style_none, textcolor=dCol, size=size.tiny)
+            if not array.get(swh_swpt, iH2)
+                lvl  = array.get(swh_lvl, iH2)
+                dist = math.abs(close - lvl)
+                if dist < nearestDist
+                    nearestDist := dist
+                    nearestLvl  := lvl
 
     swl_sz2 = array.size(swl_lvl)
     if swl_sz2 > 0
         for iL2 = 0 to swl_sz2 - 1
-            lvl = array.get(swl_lvl, iL2)
-            if math.abs(close - lvl) / lvl < prox
-                dCol = fpDelta >= 0 ? color.new(C_BSL_1, 0) : color.new(C_SSL_1, 0)
-                label.new(bar_index, lvl, text=str.tostring(math.round(fpDelta)),
-                     style=label.style_none, textcolor=dCol, size=size.tiny)
+            if not array.get(swl_swpt, iL2)
+                lvl  = array.get(swl_lvl, iL2)
+                dist = math.abs(close - lvl)
+                if dist < nearestDist
+                    nearestDist := dist
+                    nearestLvl  := lvl
+
+    // Show delta only if price is within 0.5% of the nearest level
+    if not na(nearestLvl) and nearestDist / nearestLvl < 0.005
+        dSign = fpDelta >= 0 ? "+" : ""
+        dText = "Vol Δ " + dSign + str.tostring(math.round(fpDelta))
+        dCol  = fpDelta >= 0 ? color.new(C_BSL_1, 20) : color.new(C_SSL_1, 20)
+        fpLabel := label.new(bar_index + 2, nearestLvl, text=dText,
+             style=label.style_none, textcolor=dCol, size=size.small)
 
 // ══════════════════════════════════════════════════════════════════
 //  LEGEND  (compact table, top-right)
 // ══════════════════════════════════════════════════════════════════
 
-var table leg = table.new(position.top_right, 2, 6,
+var table leg = table.new(position.top_right, 1, 5,
      bgcolor=color.new(#1B2631, 15), border_width=0,
      frame_color=color.new(#455A64, 0), frame_width=1)
 
 if barstate.islastconfirmedhistory
-    table.cell(leg, 0, 0, " LIQUIDITY MAP ",
-         text_color=#ECEFF1, text_size=size.small, bgcolor=#1B2631,
-         text_halign=text.align_center)
-    table.merge_cells(leg, 0, 0, 1, 0)
+    table.cell(leg, 0, 0, "  LIQUIDITY MAP  ",
+         text_color=#ECEFF1, text_size=size.small, bgcolor=#1B2631)
 
-    table.cell(leg, 0, 1, "━━ PDH / PDL",
+    table.cell(leg, 0, 1, "━━  PDH / PDL",
          text_color=color.new(C_BSL_1, 0), text_size=size.tiny)
-    table.cell(leg, 1, 1, " solid · w2 · price label",
-         text_color=#78909C, text_size=size.tiny)
 
-    table.cell(leg, 0, 2, "╍╍ EQH / EQL",
+    table.cell(leg, 0, 2, "╍╍  EQH / EQL",
          text_color=color.new(C_BSL_2, 0), text_size=size.tiny)
-    table.cell(leg, 1, 2, " dashed · w2 · zone box",
-         text_color=#78909C, text_size=size.tiny)
 
-    table.cell(leg, 0, 3, "- - HTF  (" + i_htfTF + ")",
+    table.cell(leg, 0, 3, "- -  HTF  (" + i_htfTF + ")",
          text_color=color.new(C_BSL_HTF, 0), text_size=size.tiny)
-    table.cell(leg, 1, 3, " dashed · w1 · price label",
-         text_color=#78909C, text_size=size.tiny)
 
-    table.cell(leg, 0, 4, "··· Swing H / L",
+    table.cell(leg, 0, 4, "···  Swing H / L",
          text_color=color.new(C_BSL_3, 0), text_size=size.tiny)
-    table.cell(leg, 1, 4, " dotted · w1 · lines only",
-         text_color=#78909C, text_size=size.tiny)
-
-    table.cell(leg, 0, 5, " x  Swept",
-         text_color=color.new(C_SWEPT, 0), text_size=size.tiny)
-    table.cell(leg, 1, 5, " grey · liquidity taken",
-         text_color=#78909C, text_size=size.tiny)
