@@ -1,249 +1,228 @@
 //@version=6
 indicator("ICT Liquidity Map", shorttitle="ICT Liq", overlay=true,
-     max_lines_count=300, max_boxes_count=200, max_labels_count=200)
+     max_lines_count=300, max_boxes_count=100, max_labels_count=200)
 
 // ══════════════════════════════════════════════════════════════════
 //  INPUTS
 // ══════════════════════════════════════════════════════════════════
 
-grpSW   = "▸ Swing Highs / Lows"
-i_swLeft  = input.int(5,    "Left Bars",             minval=1, maxval=20,  group=grpSW)
-i_swRight = input.int(5,    "Right Bars",            minval=1, maxval=20,  group=grpSW)
-i_swShow  = input.bool(true, "Show Swing Levels",                          group=grpSW)
-i_swMax   = input.int(6,    "Max Levels on Chart",   minval=2, maxval=20,  group=grpSW)
+grpSW   = "Swing Structure"
+i_swLeft  = input.int(5,    "Left Bars",           minval=1, maxval=20,  group=grpSW)
+i_swRight = input.int(5,    "Right Bars",          minval=1, maxval=20,  group=grpSW)
+i_swShow  = input.bool(true, "Show Swing Levels",                        group=grpSW)
+i_swMax   = input.int(6,    "Max Levels",          minval=2, maxval=20,  group=grpSW)
 
-grpEQ   = "▸ Equal Highs / Lows  (EQH / EQL)"
-i_eqShow  = input.bool(true,  "Show EQH / EQL",                           group=grpEQ)
-i_eqTol   = input.float(0.05, "Tolerance (%)",  minval=0.01, maxval=0.5,  group=grpEQ, step=0.01)
+grpEQ   = "Equal Highs / Lows"
+i_eqShow  = input.bool(true,  "Show EQH / EQL",                         group=grpEQ)
+i_eqTol   = input.float(0.05, "Tolerance (%)", minval=0.01, maxval=0.5, group=grpEQ, step=0.01)
 
-grpPD   = "▸ Previous Sessions"
-i_pdShow  = input.bool(true,  "Show PDH / PDL  (Previous Day)",           group=grpPD)
-i_pwShow  = input.bool(false, "Show PWH / PWL  (Previous Week)",          group=grpPD)
+grpPD   = "Session Levels"
+i_pdShow  = input.bool(true,  "Show PDH / PDL",                         group=grpPD)
+i_pwShow  = input.bool(false, "Show PWH / PWL",                         group=grpPD)
 
-grpHTF  = "▸ Higher Timeframe Swings"
-i_htfShow = input.bool(true,         "Show HTF Swing Levels",             group=grpHTF)
-i_htfTF   = input.timeframe("60",    "HTF Timeframe",                     group=grpHTF)
+grpHTF  = "Higher Timeframe"
+i_htfShow = input.bool(true,       "Show HTF Swings",                   group=grpHTF)
+i_htfTF   = input.timeframe("60",  "Timeframe",                         group=grpHTF)
 
-grpFP   = "▸ Footprint Delta  (Premium)"
-i_fpShow  = input.bool(true, "Show Volume Δ at Levels",                   group=grpFP)
-i_fpTicks = input.int(4,     "Ticks Per Row",        minval=1,            group=grpFP)
+grpFP   = "Footprint Delta (Premium)"
+i_fpShow  = input.bool(true, "Show Volume Delta",                       group=grpFP)
+i_fpTicks = input.int(4,     "Ticks Per Row",      minval=1,            group=grpFP)
 
-grpVis  = "▸ Visual Settings"
-i_ext     = input.int(50,    "Extend Right (bars)",  minval=5, maxval=500, group=grpVis)
-i_boxPct  = input.float(0.08,"Zone Height (%)",  minval=0.01, maxval=1.0, group=grpVis, step=0.01)
-i_swept   = input.bool(true, "Mark Swept Zones",                          group=grpVis)
-
-// ══════════════════════════════════════════════════════════════════
-//  COLOR SYSTEM  —  3-tier visual priority
-//  BSL = green family  |  SSL = red/amber family
-//  Tier 1 (PDH/PDL) : brightest, solid, width 2
-//  Tier 2 (EQH/EQL) : medium,   dashed, width 1
-//  Tier 3 (Swing)   : softest,  dotted, width 1
-//  HTF              : pale,     dashed, width 1
-//  Swept            : grey-blue, dotted
-// ══════════════════════════════════════════════════════════════════
-
-// Tier 1
-C_T1_BSL    = #00E676   // neon green
-C_T1_SSL    = #FF1744   // neon red
-
-// Tier 2
-C_T2_BSL    = #00BCD4   // cyan
-C_T2_SSL    = #FF6F00   // amber
-
-// Tier 3
-C_T3_BSL    = #69F0AE   // soft green
-C_T3_SSL    = #FF8A80   // soft red
-
-// HTF
-C_HTF_BSL   = #B9F6CA   // pale green
-C_HTF_SSL   = #FFCCBC   // pale peach
-
-// Swept
-C_SWEPT     = #607D8B   // blue-grey
+grpVis  = "Visual"
+i_ext     = input.int(30,    "Extend Right (bars)", minval=5, maxval=200, group=grpVis)
+i_swept   = input.bool(true, "Mark Swept Zones",                         group=grpVis)
 
 // ══════════════════════════════════════════════════════════════════
-//  HELPER — zone height in price units
+//  COLORS
+//  Green family = liquidity ABOVE price (buyside)
+//  Red family   = liquidity BELOW price (sellside)
 // ══════════════════════════════════════════════════════════════════
-zoneH(price) => price * i_boxPct / 100.0
+
+C_BSL_1     = #00E676     // PDH     – bright green
+C_SSL_1     = #FF1744     // PDL     – bright red
+C_BSL_2     = #00BCD4     // EQH     – cyan
+C_SSL_2     = #FF6F00     // EQL     – amber
+C_BSL_3     = #66BB6A     // Swing H – muted green
+C_SSL_3     = #EF5350     // Swing L – muted red
+C_BSL_HTF   = #A5D6A7     // HTF H   – pale green
+C_SSL_HTF   = #FFAB91     // HTF L   – pale salmon
+C_SWEPT     = #546E7A     // swept   – blue-grey
 
 // ══════════════════════════════════════════════════════════════════
-//  FOOTPRINT  (single unconditional call – Premium required)
-//  Data is used only when i_fpShow = true
+//  HELPERS
 // ══════════════════════════════════════════════════════════════════
-footprint fpData  = request.footprint(i_fpTicks)
+
+priceStr(p) => str.tostring(p, format.mintick)
+
+// ══════════════════════════════════════════════════════════════════
+//  FOOTPRINT  (single call — Premium)
+// ══════════════════════════════════════════════════════════════════
+
+footprint fpData = request.footprint(i_fpTicks)
 
 float fpDelta = na
-float fpBuy   = na
-float fpSell  = na
 if not na(fpData)
     fpDelta := fpData.delta()
-    fpBuy   := fpData.buy_volume()
-    fpSell  := fpData.sell_volume()
 
 // ══════════════════════════════════════════════════════════════════
-//  PREVIOUS DAY / WEEK  H & L
+//  SECTION 1 — PDH / PDL / PWH / PWL
+//  Solid thick lines with price labels at the right end.
+//  Thin colored band shows the zone.
 // ══════════════════════════════════════════════════════════════════
+
 [pdH, pdL] = request.security(syminfo.tickerid, "D",
      [high[1], low[1]], lookahead=barmerge.lookahead_on)
-
 [pwH, pwL] = request.security(syminfo.tickerid, "W",
      [high[1], low[1]], lookahead=barmerge.lookahead_on)
 
 newDay  = timeframe.change("D")
 newWeek = timeframe.change("W")
 
-// Persistent drawing IDs for session levels (deleted & redrawn each period)
-var line  pdh_l  = na
-var line  pdl_l  = na
-var box   pdh_b  = na
-var box   pdl_b  = na
-var label pdh_lb = na
-var label pdl_lb = na
+var line  pdh_ln = na, var line  pdl_ln = na
+var label pdh_lb = na, var label pdl_lb = na
+var box   pdh_bx = na, var box   pdl_bx = na
 
-var line  pwh_l  = na
-var line  pwl_l  = na
-var box   pwh_b  = na
-var box   pwl_b  = na
+var line  pwh_ln = na, var line  pwl_ln = na
+var label pwh_lb = na, var label pwl_lb = na
 
 if i_pdShow and newDay and barstate.isconfirmed
-    line.delete(pdh_l),   line.delete(pdl_l)
-    box.delete(pdh_b),    box.delete(pdl_b)
+    line.delete(pdh_ln),  line.delete(pdl_ln)
     label.delete(pdh_lb), label.delete(pdl_lb)
+    box.delete(pdh_bx),   box.delete(pdl_bx)
 
-    h1 = zoneH(pdH)
-    h2 = zoneH(pdL)
-    r  = bar_index + i_ext
+    int x1 = bar_index
+    int x2 = bar_index + i_ext
+    float band = pdH * 0.0004
 
-    pdh_l  := line.new(bar_index, pdH, r, pdH,
-                 color=color.new(C_T1_BSL, 0), width=2, style=line.style_solid)
-    pdl_l  := line.new(bar_index, pdL, r, pdL,
-                 color=color.new(C_T1_SSL, 0), width=2, style=line.style_solid)
-    pdh_b  := box.new(bar_index, pdH + h1, r, pdH - h1,
-                 bgcolor=color.new(C_T1_BSL, 82), border_color=color.new(C_T1_BSL, 0), border_width=1)
-    pdl_b  := box.new(bar_index, pdL + h2, r, pdL - h2,
-                 bgcolor=color.new(C_T1_SSL, 82), border_color=color.new(C_T1_SSL, 0), border_width=1)
-    pdh_lb := label.new(r, pdH, text=" PDH  ▲ BSL",
-                 color=color.new(color.black, 100), textcolor=color.new(C_T1_BSL, 0),
-                 style=label.style_label_left, size=size.small)
-    pdl_lb := label.new(r, pdL, text=" PDL  ▼ SSL",
-                 color=color.new(color.black, 100), textcolor=color.new(C_T1_SSL, 0),
-                 style=label.style_label_left, size=size.small)
+    pdh_ln := line.new(x1, pdH, x2, pdH,
+                 color=color.new(C_BSL_1, 0), width=2, style=line.style_solid)
+    pdl_ln := line.new(x1, pdL, x2, pdL,
+                 color=color.new(C_SSL_1, 0), width=2, style=line.style_solid)
+    pdh_bx := box.new(x1, pdH + band, x2, pdH - band,
+                 bgcolor=color.new(C_BSL_1, 90), border_color=na)
+    pdl_bx := box.new(x1, pdL + band, x2, pdL - band,
+                 bgcolor=color.new(C_SSL_1, 90), border_color=na)
+    pdh_lb := label.new(x2 + 1, pdH, text="PDH  " + priceStr(pdH),
+                 style=label.style_none, textcolor=color.new(C_BSL_1, 0), size=size.normal)
+    pdl_lb := label.new(x2 + 1, pdL, text="PDL  " + priceStr(pdL),
+                 style=label.style_none, textcolor=color.new(C_SSL_1, 0), size=size.normal)
 
 if i_pwShow and newWeek and barstate.isconfirmed
-    line.delete(pwh_l), line.delete(pwl_l)
-    box.delete(pwh_b),  box.delete(pwl_b)
+    line.delete(pwh_ln),  line.delete(pwl_ln)
+    label.delete(pwh_lb), label.delete(pwl_lb)
 
-    hw = zoneH(pwH)
-    lw = zoneH(pwL)
-    r  = bar_index + i_ext
+    int x1 = bar_index
+    int x2 = bar_index + i_ext
 
-    pwh_l := line.new(bar_index, pwH, r, pwH,
-                color=color.new(C_T1_BSL, 20), width=2, style=line.style_dashed)
-    pwl_l := line.new(bar_index, pwL, r, pwL,
-                color=color.new(C_T1_SSL, 20), width=2, style=line.style_dashed)
-    pwh_b := box.new(bar_index, pwH + hw, r, pwH - hw,
-                bgcolor=color.new(C_T1_BSL, 87), border_color=color.new(C_T1_BSL, 20))
-    pwl_b := box.new(bar_index, pwL + lw, r, pwL - lw,
-                bgcolor=color.new(C_T1_SSL, 87), border_color=color.new(C_T1_SSL, 20))
+    pwh_ln := line.new(x1, pwH, x2, pwH,
+                 color=color.new(C_BSL_1, 30), width=2, style=line.style_dashed)
+    pwl_ln := line.new(x1, pwL, x2, pwL,
+                 color=color.new(C_SSL_1, 30), width=2, style=line.style_dashed)
+    pwh_lb := label.new(x2 + 1, pwH, text="PWH  " + priceStr(pwH),
+                 style=label.style_none, textcolor=color.new(C_BSL_1, 30), size=size.normal)
+    pwl_lb := label.new(x2 + 1, pwL, text="PWL  " + priceStr(pwL),
+                 style=label.style_none, textcolor=color.new(C_SSL_1, 30), size=size.normal)
 
 // ══════════════════════════════════════════════════════════════════
-//  SWING HIGHS / LOWS  (current TF — Tier 3)
+//  SECTION 2 — SWING HIGHS / LOWS
+//  Dotted lines only — no boxes, no labels (to keep chart clean).
+//  These are the building blocks; labels appear only when
+//  a level becomes an EQH/EQL or gets swept.
 // ══════════════════════════════════════════════════════════════════
+
 float swPH = ta.pivothigh(i_swLeft, i_swRight)
 float swPL = ta.pivotlow(i_swLeft,  i_swRight)
 
-// Arrays store the N most recent levels + their drawing objects
 var array<float> swh_lvl  = array.new<float>()
 var array<float> swl_lvl  = array.new<float>()
 var array<line>  swh_lns  = array.new<line>()
 var array<line>  swl_lns  = array.new<line>()
-var array<box>   swh_bxs  = array.new<box>()
-var array<box>   swl_bxs  = array.new<box>()
+var array<int>   swh_bars = array.new<int>()
+var array<int>   swl_bars = array.new<int>()
 var array<bool>  swh_swpt = array.new<bool>()
 var array<bool>  swl_swpt = array.new<bool>()
 
 if i_swShow and not na(swPH)
-    // Remove oldest entry if at capacity
     if array.size(swh_lns) >= i_swMax
         line.delete(array.shift(swh_lns))
-        box.delete(array.shift(swh_bxs))
         array.shift(swh_lvl)
+        array.shift(swh_bars)
         array.shift(swh_swpt)
 
-    h  = zoneH(swPH)
-    x1 = bar_index - i_swRight
-    x2 = x1 + i_ext
-    l  = line.new(x1, swPH, x2, swPH,
-             color=color.new(C_T3_BSL, 0), width=1, style=line.style_dotted)
-    b  = box.new(x1, swPH + h, x2, swPH - h,
-             bgcolor=color.new(C_T3_BSL, 90), border_color=color.new(C_T3_BSL, 0))
+    int x1 = bar_index - i_swRight
+    int x2 = x1 + i_ext
+    l = line.new(x1, swPH, x2, swPH,
+            color=color.new(C_BSL_3, 30), width=1, style=line.style_dotted)
     array.push(swh_lns,  l)
-    array.push(swh_bxs,  b)
     array.push(swh_lvl,  swPH)
+    array.push(swh_bars, x1)
     array.push(swh_swpt, false)
 
 if i_swShow and not na(swPL)
     if array.size(swl_lns) >= i_swMax
         line.delete(array.shift(swl_lns))
-        box.delete(array.shift(swl_bxs))
         array.shift(swl_lvl)
+        array.shift(swl_bars)
         array.shift(swl_swpt)
 
-    h  = zoneH(swPL)
-    x1 = bar_index - i_swRight
-    x2 = x1 + i_ext
-    l  = line.new(x1, swPL, x2, swPL,
-             color=color.new(C_T3_SSL, 0), width=1, style=line.style_dotted)
-    b  = box.new(x1, swPL + h, x2, swPL - h,
-             bgcolor=color.new(C_T3_SSL, 90), border_color=color.new(C_T3_SSL, 0))
+    int x1 = bar_index - i_swRight
+    int x2 = x1 + i_ext
+    l = line.new(x1, swPL, x2, swPL,
+            color=color.new(C_SSL_3, 30), width=1, style=line.style_dotted)
     array.push(swl_lns,  l)
-    array.push(swl_bxs,  b)
     array.push(swl_lvl,  swPL)
+    array.push(swl_bars, x1)
     array.push(swl_swpt, false)
 
 // ══════════════════════════════════════════════════════════════════
-//  HTF SWING HIGHS / LOWS  (pale dashed — between Tier 2 & 3)
+//  SECTION 3 — HTF SWING LEVELS
+//  Dashed line + tiny label showing timeframe and price.
+//  No box — just a clean line that stands out by color.
 // ══════════════════════════════════════════════════════════════════
+
 [htfPH, htfPL] = request.security(syminfo.tickerid, i_htfTF,
      [ta.pivothigh(i_swLeft, i_swRight), ta.pivotlow(i_swLeft, i_swRight)],
      gaps=barmerge.gaps_on)
 
-var array<line> htfh_lns = array.new<line>()
-var array<line> htfl_lns = array.new<line>()
-var array<box>  htfh_bxs = array.new<box>()
-var array<box>  htfl_bxs = array.new<box>()
+var array<line>  htfh_lns = array.new<line>()
+var array<line>  htfl_lns = array.new<line>()
+var array<label> htfh_lbs = array.new<label>()
+var array<label> htfl_lbs = array.new<label>()
 
 if i_htfShow and not na(htfPH)
     if array.size(htfh_lns) >= i_swMax
         line.delete(array.shift(htfh_lns))
-        box.delete(array.shift(htfh_bxs))
-    h  = zoneH(htfPH)
-    r  = bar_index + i_ext
-    l  = line.new(bar_index, htfPH, r, htfPH,
-             color=color.new(C_HTF_BSL, 0), width=1, style=line.style_dashed)
-    b  = box.new(bar_index, htfPH + h, r, htfPH - h,
-             bgcolor=color.new(C_HTF_BSL, 88), border_color=color.new(C_HTF_BSL, 0))
+        label.delete(array.shift(htfh_lbs))
+
+    int x2 = bar_index + i_ext
+    l  = line.new(bar_index, htfPH, x2, htfPH,
+             color=color.new(C_BSL_HTF, 0), width=1, style=line.style_dashed)
+    lb = label.new(x2 + 1, htfPH,
+             text=i_htfTF + " H  " + priceStr(htfPH),
+             style=label.style_none, textcolor=color.new(C_BSL_HTF, 0), size=size.small)
     array.push(htfh_lns, l)
-    array.push(htfh_bxs, b)
+    array.push(htfh_lbs, lb)
 
 if i_htfShow and not na(htfPL)
     if array.size(htfl_lns) >= i_swMax
         line.delete(array.shift(htfl_lns))
-        box.delete(array.shift(htfl_bxs))
-    h  = zoneH(htfPL)
-    r  = bar_index + i_ext
-    l  = line.new(bar_index, htfPL, r, htfPL,
-             color=color.new(C_HTF_SSL, 0), width=1, style=line.style_dashed)
-    b  = box.new(bar_index, htfPL + h, r, htfPL - h,
-             bgcolor=color.new(C_HTF_SSL, 88), border_color=color.new(C_HTF_SSL, 0))
+        label.delete(array.shift(htfl_lbs))
+
+    int x2 = bar_index + i_ext
+    l  = line.new(bar_index, htfPL, x2, htfPL,
+             color=color.new(C_SSL_HTF, 0), width=1, style=line.style_dashed)
+    lb = label.new(x2 + 1, htfPL,
+             text=i_htfTF + " L  " + priceStr(htfPL),
+             style=label.style_none, textcolor=color.new(C_SSL_HTF, 0), size=size.small)
     array.push(htfl_lns, l)
-    array.push(htfl_bxs, b)
+    array.push(htfl_lbs, lb)
 
 // ══════════════════════════════════════════════════════════════════
-//  EQUAL HIGHS / LOWS  (Tier 2 — cyan / amber)
-//  Detected when two consecutive pivot highs/lows are within tolerance
+//  SECTION 4 — EQUAL HIGHS / LOWS (EQH / EQL)
+//  Dashed line at the midpoint + box spanning between the two
+//  equal pivots.  Label clearly says "EQH" or "EQL" with price.
 // ══════════════════════════════════════════════════════════════════
+
 var array<line>  eqh_lns = array.new<line>()
 var array<line>  eql_lns = array.new<line>()
 var array<box>   eqh_bxs = array.new<box>()
@@ -258,21 +237,24 @@ if i_eqShow and not na(swPH)
     if sz >= 2
         prevH = array.get(swh_lvl, sz - 2)
         if math.abs(swPH - prevH) / prevH <= eqFrac
-            // Prune oldest EQH
-            if array.size(eqh_lns) >= 10
+            if array.size(eqh_lns) >= 8
                 line.delete(array.shift(eqh_lns))
                 box.delete(array.shift(eqh_bxs))
                 label.delete(array.shift(eqh_lbs))
-            h  = zoneH(swPH)
-            x1 = bar_index - i_swRight
-            x2 = x1 + i_ext
-            l  = line.new(x1, swPH, x2, swPH,
-                     color=color.new(C_T2_BSL, 0), width=1, style=line.style_dashed)
-            b  = box.new(x1, swPH + h, x2, swPH - h,
-                     bgcolor=color.new(C_T2_BSL, 84), border_color=color.new(C_T2_BSL, 0))
-            lb = label.new(x2, swPH, text=" EQH  ▲ BSL",
-                     color=color.new(color.black, 100), textcolor=color.new(C_T2_BSL, 0),
-                     style=label.style_label_left, size=size.small)
+
+            float hi  = math.max(swPH, prevH)
+            float lo  = math.min(swPH, prevH)
+            float mid = (hi + lo) / 2.0
+            int x1    = bar_index - i_swRight
+            int x2    = x1 + i_ext
+
+            l  = line.new(x1, mid, x2, mid,
+                     color=color.new(C_BSL_2, 0), width=2, style=line.style_dashed)
+            b  = box.new(x1, hi, x2, lo,
+                     bgcolor=color.new(C_BSL_2, 88), border_color=color.new(C_BSL_2, 60),
+                     border_width=1)
+            lb = label.new(x2 + 1, mid, text="EQH  " + priceStr(mid),
+                     style=label.style_none, textcolor=color.new(C_BSL_2, 0), size=size.normal)
             array.push(eqh_lns, l)
             array.push(eqh_bxs, b)
             array.push(eqh_lbs, lb)
@@ -282,30 +264,35 @@ if i_eqShow and not na(swPL)
     if sz >= 2
         prevL = array.get(swl_lvl, sz - 2)
         if math.abs(swPL - prevL) / prevL <= eqFrac
-            if array.size(eql_lns) >= 10
+            if array.size(eql_lns) >= 8
                 line.delete(array.shift(eql_lns))
                 box.delete(array.shift(eql_bxs))
                 label.delete(array.shift(eql_lbs))
-            h  = zoneH(swPL)
-            x1 = bar_index - i_swRight
-            x2 = x1 + i_ext
-            l  = line.new(x1, swPL, x2, swPL,
-                     color=color.new(C_T2_SSL, 0), width=1, style=line.style_dashed)
-            b  = box.new(x1, swPL + h, x2, swPL - h,
-                     bgcolor=color.new(C_T2_SSL, 84), border_color=color.new(C_T2_SSL, 0))
-            lb = label.new(x2, swPL, text=" EQL  ▼ SSL",
-                     color=color.new(color.black, 100), textcolor=color.new(C_T2_SSL, 0),
-                     style=label.style_label_left, size=size.small)
+
+            float hi  = math.max(swPL, prevL)
+            float lo  = math.min(swPL, prevL)
+            float mid = (hi + lo) / 2.0
+            int x1    = bar_index - i_swRight
+            int x2    = x1 + i_ext
+
+            l  = line.new(x1, mid, x2, mid,
+                     color=color.new(C_SSL_2, 0), width=2, style=line.style_dashed)
+            b  = box.new(x1, hi, x2, lo,
+                     bgcolor=color.new(C_SSL_2, 88), border_color=color.new(C_SSL_2, 60),
+                     border_width=1)
+            lb = label.new(x2 + 1, mid, text="EQL  " + priceStr(mid),
+                     style=label.style_none, textcolor=color.new(C_SSL_2, 0), size=size.normal)
             array.push(eql_lns, l)
             array.push(eql_bxs, b)
             array.push(eql_lbs, lb)
 
 // ══════════════════════════════════════════════════════════════════
-//  SWEPT ZONES
-//  When price closes through a swing level → grey it out
+//  SECTION 5 — SWEPT ZONES
+//  When close breaks through a swing level, the line turns grey
+//  and a small "x" marker appears at the sweep bar.
 // ══════════════════════════════════════════════════════════════════
+
 if i_swept
-    // Swing highs swept when close > level (stop hunt above BSL)
     swh_sz = array.size(swh_lns)
     if swh_sz > 0
         for iH = 0 to swh_sz - 1
@@ -313,12 +300,12 @@ if i_swept
                 lvl = array.get(swh_lvl, iH)
                 if close > lvl
                     array.set(swh_swpt, iH, true)
-                    line.set_color(array.get(swh_lns, iH), color.new(C_SWEPT, 30))
+                    line.set_color(array.get(swh_lns, iH), color.new(C_SWEPT, 60))
                     line.set_style(array.get(swh_lns, iH), line.style_dotted)
-                    box.set_bgcolor(array.get(swh_bxs, iH), color.new(C_SWEPT, 93))
-                    box.set_border_color(array.get(swh_bxs, iH), color.new(C_SWEPT, 60))
+                    label.new(bar_index, lvl,
+                         style=label.style_xcross, color=color.new(C_SWEPT, 30),
+                         size=size.tiny)
 
-    // Swing lows swept when close < level
     swl_sz = array.size(swl_lns)
     if swl_sz > 0
         for iL = 0 to swl_sz - 1
@@ -326,91 +313,74 @@ if i_swept
                 lvl = array.get(swl_lvl, iL)
                 if close < lvl
                     array.set(swl_swpt, iL, true)
-                    line.set_color(array.get(swl_lns, iL), color.new(C_SWEPT, 30))
+                    line.set_color(array.get(swl_lns, iL), color.new(C_SWEPT, 60))
                     line.set_style(array.get(swl_lns, iL), line.style_dotted)
-                    box.set_bgcolor(array.get(swl_bxs, iL), color.new(C_SWEPT, 93))
-                    box.set_border_color(array.get(swl_bxs, iL), color.new(C_SWEPT, 60))
+                    label.new(bar_index, lvl,
+                         style=label.style_xcross, color=color.new(C_SWEPT, 30),
+                         size=size.tiny)
 
 // ══════════════════════════════════════════════════════════════════
-//  FOOTPRINT DELTA LABELS
-//  Shows Volume Δ when price is within 0.2% of any swing level
-//  ▲Δ (green) = more buy aggression  |  ▼Δ (red) = more sell aggression
+//  SECTION 6 — FOOTPRINT DELTA
+//  When price is within 0.3% of a swing level, show a small
+//  volume delta badge directly on that bar.
 // ══════════════════════════════════════════════════════════════════
+
 if i_fpShow and not na(fpDelta) and barstate.isconfirmed
-    proximity = 0.002   // 0.2% threshold
+    float prox = 0.003
 
-    for i = 0 to array.size(swh_lvl) - 1
-        lvl = array.get(swh_lvl, i)
-        if math.abs(close - lvl) / lvl < proximity
-            dStr = (fpDelta >= 0 ? "▲Δ +" : "▼Δ ") + str.tostring(math.round(fpDelta), "#,##0")
-            dCol = fpDelta >= 0 ? color.new(C_T1_BSL, 0) : color.new(C_T1_SSL, 0)
-            label.new(bar_index, lvl,
-                 text=dStr, color=color.new(#1E2124, 15),
-                 textcolor=dCol, style=label.style_label_lower_right, size=size.tiny)
+    swh_sz2 = array.size(swh_lvl)
+    if swh_sz2 > 0
+        for iH2 = 0 to swh_sz2 - 1
+            lvl = array.get(swh_lvl, iH2)
+            if math.abs(close - lvl) / lvl < prox
+                dCol = fpDelta >= 0 ? color.new(C_BSL_1, 0) : color.new(C_SSL_1, 0)
+                label.new(bar_index, lvl, text=str.tostring(math.round(fpDelta)),
+                     style=label.style_none, textcolor=dCol, size=size.tiny)
 
-    for i = 0 to array.size(swl_lvl) - 1
-        lvl = array.get(swl_lvl, i)
-        if math.abs(close - lvl) / lvl < proximity
-            dStr = (fpDelta >= 0 ? "▲Δ +" : "▼Δ ") + str.tostring(math.round(fpDelta), "#,##0")
-            dCol = fpDelta >= 0 ? color.new(C_T1_BSL, 0) : color.new(C_T1_SSL, 0)
-            label.new(bar_index, lvl,
-                 text=dStr, color=color.new(#1E2124, 15),
-                 textcolor=dCol, style=label.style_label_upper_right, size=size.tiny)
+    swl_sz2 = array.size(swl_lvl)
+    if swl_sz2 > 0
+        for iL2 = 0 to swl_sz2 - 1
+            lvl = array.get(swl_lvl, iL2)
+            if math.abs(close - lvl) / lvl < prox
+                dCol = fpDelta >= 0 ? color.new(C_BSL_1, 0) : color.new(C_SSL_1, 0)
+                label.new(bar_index, lvl, text=str.tostring(math.round(fpDelta)),
+                     style=label.style_none, textcolor=dCol, size=size.tiny)
 
 // ══════════════════════════════════════════════════════════════════
-//  LEGEND TABLE  (top-right corner)
+//  LEGEND  (compact table, top-right)
 // ══════════════════════════════════════════════════════════════════
-var table legend = table.new(position.top_right, 2, 8,
-     bgcolor=color.new(#1E2124, 10),
-     border_color=color.new(#455A64, 0), border_width=1,
-     frame_color=color.new(#455A64, 0),  frame_width=1)
+
+var table leg = table.new(position.top_right, 2, 6,
+     bgcolor=color.new(#1B2631, 15), border_width=0,
+     frame_color=color.new(#455A64, 0), frame_width=1)
 
 if barstate.islastconfirmedhistory
-    // Title row
-    table.cell(legend, 0, 0, "  ICT  LIQUIDITY  MAP  ",
-         text_color=#CFD8DC, text_size=size.small,
-         bgcolor=#263238, text_halign=text.align_center)
-    table.merge_cells(legend, 0, 0, 1, 0)
+    table.cell(leg, 0, 0, " LIQUIDITY MAP ",
+         text_color=#ECEFF1, text_size=size.small, bgcolor=#1B2631,
+         text_halign=text.align_center)
+    table.merge_cells(leg, 0, 0, 1, 0)
 
-    // BSL header
-    table.cell(legend, 0, 1, "▲ BUYSIDE (BSL)",
-         text_color=color.new(C_T1_BSL, 0), text_size=size.tiny, text_halign=text.align_left)
-    table.cell(legend, 1, 1, "▼ SELLSIDE (SSL)",
-         text_color=color.new(C_T1_SSL, 0), text_size=size.tiny, text_halign=text.align_left)
+    table.cell(leg, 0, 1, "━━ PDH / PDL",
+         text_color=color.new(C_BSL_1, 0), text_size=size.tiny)
+    table.cell(leg, 1, 1, " solid · w2 · price label",
+         text_color=#78909C, text_size=size.tiny)
 
-    // Tier 1
-    table.cell(legend, 0, 2, "● PDH / PWH",
-         text_color=color.new(C_T1_BSL, 0), text_size=size.tiny, text_halign=text.align_left)
-    table.cell(legend, 1, 2, "  Tier 1 · solid · w2",
-         text_color=#90A4AE, text_size=size.tiny, text_halign=text.align_left)
+    table.cell(leg, 0, 2, "╍╍ EQH / EQL",
+         text_color=color.new(C_BSL_2, 0), text_size=size.tiny)
+    table.cell(leg, 1, 2, " dashed · w2 · zone box",
+         text_color=#78909C, text_size=size.tiny)
 
-    // Tier 2
-    table.cell(legend, 0, 3, "● EQH",
-         text_color=color.new(C_T2_BSL, 0), text_size=size.tiny, text_halign=text.align_left)
-    table.cell(legend, 1, 3, "  Tier 2 · dashed · w1",
-         text_color=#90A4AE, text_size=size.tiny, text_halign=text.align_left)
+    table.cell(leg, 0, 3, "- - HTF  (" + i_htfTF + ")",
+         text_color=color.new(C_BSL_HTF, 0), text_size=size.tiny)
+    table.cell(leg, 1, 3, " dashed · w1 · price label",
+         text_color=#78909C, text_size=size.tiny)
 
-    // HTF
-    table.cell(legend, 0, 4, "● HTF Swing",
-         text_color=color.new(C_HTF_BSL, 0), text_size=size.tiny, text_halign=text.align_left)
-    table.cell(legend, 1, 4, "  HTF  · dashed · w1",
-         text_color=#90A4AE, text_size=size.tiny, text_halign=text.align_left)
+    table.cell(leg, 0, 4, "··· Swing H / L",
+         text_color=color.new(C_BSL_3, 0), text_size=size.tiny)
+    table.cell(leg, 1, 4, " dotted · w1 · lines only",
+         text_color=#78909C, text_size=size.tiny)
 
-    // Tier 3
-    table.cell(legend, 0, 5, "● Swing H/L",
-         text_color=color.new(C_T3_BSL, 0), text_size=size.tiny, text_halign=text.align_left)
-    table.cell(legend, 1, 5, "  Tier 3 · dotted · w1",
-         text_color=#90A4AE, text_size=size.tiny, text_halign=text.align_left)
-
-    // Swept
-    table.cell(legend, 0, 6, "● Swept",
-         text_color=color.new(C_SWEPT, 0), text_size=size.tiny, text_halign=text.align_left)
-    table.cell(legend, 1, 6, "  Liquidity taken",
-         text_color=#90A4AE, text_size=size.tiny, text_halign=text.align_left)
-
-    // Footprint row
-    fpStatus = i_fpShow ? "ON" : "OFF"
-    table.cell(legend, 0, 7, "▲Δ / ▼Δ  FP: " + fpStatus,
-         text_color=color.new(C_T2_BSL, 0), text_size=size.tiny, text_halign=text.align_left)
-    table.cell(legend, 1, 7, "  Vol delta @ level",
-         text_color=#90A4AE, text_size=size.tiny, text_halign=text.align_left)
+    table.cell(leg, 0, 5, " x  Swept",
+         text_color=color.new(C_SWEPT, 0), text_size=size.tiny)
+    table.cell(leg, 1, 5, " grey · liquidity taken",
+         text_color=#78909C, text_size=size.tiny)
