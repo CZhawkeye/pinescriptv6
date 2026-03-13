@@ -1,6 +1,6 @@
 //@version=6
 indicator("ICT Liquidity Zones", shorttitle="ICT Liq", overlay=true,
-     max_lines_count=200, max_boxes_count=100, max_labels_count=100)
+     max_lines_count=200, max_boxes_count=200, max_labels_count=150)
 
 // ══════════════════════════════════════════════════════════════════
 //  INPUTS
@@ -28,6 +28,19 @@ i_fpOn = input.bool(true,  "Score Zones with Footprint",            group=grpFP)
 i_fpT  = input.int(4,      "Ticks Per Row",     minval=1,           group=grpFP)
 i_fvOn = input.bool(true,  "Show High-Volume Zones (POC)",          group=grpFP)
 i_fvThr= input.float(2.0,  "Volume Zone Threshold (x avg delta)",minval=1.2, maxval=5.0, group=grpFP, step=0.1)
+
+grpSI    = "Stacked Imbalances"
+i_siOn   = input.bool(true,    "Show Stacked Imbalances",              group=grpSI)
+i_siRat  = input.float(3.0,    "Imbalance Ratio (×, 3 = 300%)",        minval=1.5, maxval=10.0, step=0.5, group=grpSI)
+i_siMin  = input.int(3,        "Min Consecutive Rows",                  minval=2,   maxval=8,              group=grpSI)
+i_siColB = input.color(#00E5FF,"Buy Stack Color",                       group=grpSI)
+i_siColS = input.color(#FF6E40,"Sell Stack Color",                      group=grpSI)
+
+grpAbs   = "Absorption"
+i_absOn  = input.bool(true,    "Show Absorption Zones",                 group=grpAbs)
+i_absVThr= input.float(1.5,    "Min Delta Multiple (× avg)",            minval=1.0, maxval=5.0, step=0.1, group=grpAbs)
+i_absRThr= input.float(0.5,    "Max Bar Range (× ATR)",                 minval=0.1, maxval=1.5, step=0.1, group=grpAbs)
+i_absCol = input.color(#E040FB,"Absorption Color",                      group=grpAbs)
 
 grpClr = "Colors & Styles"
 i_bslCol = input.color(#00E676, "BSL Color (above price)",          group=grpClr)
@@ -67,6 +80,57 @@ findBar(target, useHigh) =>
             found := bar_index - lb
             break
     found
+
+// ══════════════════════════════════════════════════════════════════
+//  STACKED IMBALANCE — UDM callback state (script-level for each_row)
+// ══════════════════════════════════════════════════════════════════
+
+// Accumulator state — reset before each confirmed bar's each_row call
+var float        _siLo     = na      // bottom of current candidate stack
+var float        _siHi     = na      // top of current candidate stack
+var float        _siCnt    = 0.0     // rows accumulated in current stack
+var float        _siDir    = 0.0     // 1.0 = buy imbalance, -1.0 = sell
+
+// Completed stacks from the current bar — flat array of triples [lo, hi, dir, ...]
+var array<float> _siStacks = array.new<float>()
+
+// Flush current candidate into _siStacks (called when stack breaks or row ends)
+method _siFlush(volume_row this) =>
+    if _siCnt >= float(i_siMin) and not na(_siLo)
+        array.push(_siStacks, _siLo)
+        array.push(_siStacks, _siHi)
+        array.push(_siStacks, _siDir)
+    _siLo  := na
+    _siHi  := na
+    _siCnt := 0.0
+    _siDir := 0.0
+
+// Per-row callback passed to fpData.each_row()
+// each_row iterates bottom → top price, so stacks build naturally
+method _siRow(volume_row this) =>
+    float ask = this.ask_volume()
+    float bid = this.bid_volume()
+    // Buy imbalance: aggressive buyers >> sellers at this price level
+    bool buyImbal  = not na(ask) and not na(bid) and bid > 0.0 and ask / bid >= i_siRat
+    // Sell imbalance: aggressive sellers >> buyers at this price level
+    bool sellImbal = not na(ask) and not na(bid) and ask > 0.0 and bid / ask >= i_siRat
+
+    if buyImbal
+        if _siDir != 1.0
+            this._siFlush()
+            _siLo := this.down_price()
+            _siDir := 1.0
+        _siHi  := this.up_price()
+        _siCnt += 1.0
+    else if sellImbal
+        if _siDir != -1.0
+            this._siFlush()
+            _siLo := this.down_price()
+            _siDir := -1.0
+        _siHi  := this.up_price()
+        _siCnt += 1.0
+    else
+        this._siFlush()
 
 // ══════════════════════════════════════════════════════════════════
 //  FOOTPRINT
@@ -272,6 +336,16 @@ var array<box>   fv_bx  = array.new<box>()
 var array<label> fv_lb  = array.new<label>()
 var array<float> fv_lvl = array.new<float>()
 
+// Stacked imbalance zones (max 12 kept)
+var array<box>   si_bx  = array.new<box>()
+var array<label> si_lb  = array.new<label>()
+var array<float> si_lvl = array.new<float>()   // midpoint of each SI zone
+
+// Absorption zones (max 6 kept)
+var array<box>   abs_bx = array.new<box>()
+var array<label> abs_lb = array.new<label>()
+var array<float> abs_lvl= array.new<float>()
+
 if i_fvOn and not na(fpAvgAbs) and not na(fpData) and not na(fpDelta)
     if math.abs(fpDelta) > fpAvgAbs * i_fvThr
         volume_row poc = fpData.poc()
@@ -298,6 +372,86 @@ if i_fvOn and not na(fpAvgAbs) and not na(fpData) and not na(fpDelta)
                  style=label.style_none, textcolor=color.new(i_fvCol, 0),
                  size=size.tiny))
             array.push(fv_lvl, pocMid)
+
+// ══════════════════════════════════════════════════════════════════
+//  STACKED IMBALANCES — institutional order flow clusters
+//  Buy stack  → demand zone → short stops ABOVE (BSL)
+//  Sell stack → supply zone → long stops BELOW  (SSL)
+// ══════════════════════════════════════════════════════════════════
+
+if i_siOn and not na(fpData) and barstate.isconfirmed
+    // Reset accumulator and output buffer for this bar
+    array.clear(_siStacks)
+    _siLo  := na
+    _siHi  := na
+    _siCnt := 0.0
+    _siDir := 0.0
+
+    // Iterate every price row bottom→top, collecting imbalance stacks
+    fpData.each_row(_siRow)
+
+    // Flush any open stack that reached the top of the bar
+    if _siCnt >= float(i_siMin) and not na(_siLo)
+        array.push(_siStacks, _siLo)
+        array.push(_siStacks, _siHi)
+        array.push(_siStacks, _siDir)
+    _siLo  := na
+    _siHi  := na
+    _siCnt := 0.0
+    _siDir := 0.0
+
+    // Draw all stacks detected on this bar
+    int stSz = array.size(_siStacks)
+    int si   = 0
+    while si + 2 < stSz
+        float lo  = array.get(_siStacks, si)
+        float hi  = array.get(_siStacks, si + 1)
+        float dir = array.get(_siStacks, si + 2)
+        color c   = dir > 0.0 ? i_siColB : i_siColS
+        string lbl= dir > 0.0 ? "SI▲" : "SI▼"
+        float mid = (hi + lo) / 2.0
+
+        if array.size(si_bx) >= 12
+            box.delete(array.shift(si_bx))
+            label.delete(array.shift(si_lb))
+            array.shift(si_lvl)
+
+        array.push(si_bx, box.new(bar_index, hi, bar_index + i_ext, lo,
+             bgcolor=color.new(c, 82), border_color=color.new(c, 48)))
+        array.push(si_lb, label.new(bar_index + i_ext + 1, mid,
+             text=lbl, style=label.style_none, textcolor=c, size=size.tiny))
+        array.push(si_lvl, mid)
+        si += 3
+
+// ══════════════════════════════════════════════════════════════════
+//  ABSORPTION — large delta + narrow range = hidden limit orders
+//  Large buy delta but price didn't rally  → sellers absorbed → supply zone
+//  Large sell delta but price didn't fall  → buyers absorbed → demand zone
+//  Stop accumulation: absorbed side's participants place stops just beyond zone
+// ══════════════════════════════════════════════════════════════════
+
+float _atr = ta.atr(14)
+
+if i_absOn and not na(fpAvgAbs) and not na(fpDelta) and _atr > 0 and barstate.isconfirmed
+    bool bigDelta   = math.abs(fpDelta) >= fpAvgAbs * i_absVThr
+    bool thinRange  = (high - low) / _atr <= i_absRThr
+
+    if bigDelta and thinRange
+        float absLvl = (high + low) / 2.0
+        // Arrow shows WHERE the absorbed pressure will resurface as price moves there
+        string absLbl = fpDelta > 0 ? "ABS▼" : "ABS▲"
+        float h = syminfo.mintick * i_zTicks * 2
+
+        if array.size(abs_bx) >= 6
+            box.delete(array.shift(abs_bx))
+            label.delete(array.shift(abs_lb))
+            array.shift(abs_lvl)
+
+        array.push(abs_bx, box.new(bar_index, absLvl + h, bar_index + i_ext, absLvl - h,
+             bgcolor=color.new(i_absCol, 84), border_color=color.new(i_absCol, 50)))
+        array.push(abs_lb, label.new(bar_index + i_ext + 1, absLvl,
+             text=absLbl, style=label.style_none, textcolor=i_absCol, size=size.tiny))
+        array.push(abs_lvl, absLvl)
 
 // ══════════════════════════════════════════════════════════════════
 //  PER-BAR: TOUCH SCORING + FP ACCUMULATION
@@ -381,10 +535,27 @@ if barstate.islast
                 isEQ  = array.get(sh_isEQ, i)
                 tch   = array.get(sh_tch, i)
                 fp    = array.get(sh_fp, i)
-                score = tch + fp / norm + (isEQ ? 5.0 : 0.0)
+                lvl   = array.get(sh_lvl, i)
                 ln    = array.get(sh_ln, i)
                 bx    = array.get(sh_bx, i)
-                lvl   = array.get(sh_lvl, i)
+
+                // Stacked-imbalance confirmation boost (+3 if SI zone near level)
+                float siBoostH = 0.0
+                int siSzH = array.size(si_lvl)
+                if siSzH > 0
+                    for k = 0 to siSzH - 1
+                        if math.abs(lvl - array.get(si_lvl, k)) <= minGap
+                            siBoostH := 3.0
+                            break
+                // Absorption confirmation boost (+4 if Absorption zone near level)
+                float absBoostH = 0.0
+                int absSzH = array.size(abs_lvl)
+                if absSzH > 0
+                    for k = 0 to absSzH - 1
+                        if math.abs(lvl - array.get(abs_lvl, k)) <= minGap
+                            absBoostH := 4.0
+                            break
+                score = tch + fp / norm + (isEQ ? 5.0 : 0.0) + siBoostH + absBoostH
 
                 if score > bestH
                     bestH  := score
@@ -415,10 +586,27 @@ if barstate.islast
                 isEQ  = array.get(sl_isEQ, i)
                 tch   = array.get(sl_tch, i)
                 fp    = array.get(sl_fp, i)
-                score = tch + fp / norm + (isEQ ? 5.0 : 0.0)
+                lvl   = array.get(sl_lvl, i)
                 ln    = array.get(sl_ln, i)
                 bx    = array.get(sl_bx, i)
-                lvl   = array.get(sl_lvl, i)
+
+                // Stacked-imbalance confirmation boost
+                float siBoostL = 0.0
+                int siSzL = array.size(si_lvl)
+                if siSzL > 0
+                    for k = 0 to siSzL - 1
+                        if math.abs(lvl - array.get(si_lvl, k)) <= minGap
+                            siBoostL := 3.0
+                            break
+                // Absorption confirmation boost
+                float absBoostL = 0.0
+                int absSzL = array.size(abs_lvl)
+                if absSzL > 0
+                    for k = 0 to absSzL - 1
+                        if math.abs(lvl - array.get(abs_lvl, k)) <= minGap
+                            absBoostL := 4.0
+                            break
+                score = tch + fp / norm + (isEQ ? 5.0 : 0.0) + siBoostL + absBoostL
 
                 if score > bestL
                     bestL  := score
@@ -519,7 +707,7 @@ if barstate.islast
 //  LEGEND
 // ══════════════════════════════════════════════════════════════════
 
-var table leg = table.new(position.top_right, 1, 7,
+var table leg = table.new(position.top_right, 1, 9,
      bgcolor=color.new(#1B2631, 15), border_width=0,
      frame_color=color.new(#37474F, 0), frame_width=1)
 
@@ -538,3 +726,7 @@ if barstate.islastconfirmedhistory
          text_color=color.new(i_magCol, 0), text_size=size.tiny)
     table.cell(leg, 0, 6, "▪   HV Zone  (footprint)",
          text_color=color.new(i_fvCol, 0), text_size=size.tiny)
+    table.cell(leg, 0, 7, "SI▲▼  Stacked Imbalance",
+         text_color=color.new(i_siColB, 0), text_size=size.tiny)
+    table.cell(leg, 0, 8, "ABS   Absorption Zone",
+         text_color=color.new(i_absCol, 0), text_size=size.tiny)
