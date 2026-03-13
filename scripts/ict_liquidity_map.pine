@@ -657,7 +657,7 @@ if barstate.islast
 //  LEGEND
 // ══════════════════════════════════════════════════════════════════
 
-var table leg = table.new(position.top_right, 1, 8,
+var table leg = table.new(position.top_right, 1, 9,
      bgcolor=color.new(#1B2631, 15), border_width=0,
      frame_color=color.new(#37474F, 0), frame_width=1)
 
