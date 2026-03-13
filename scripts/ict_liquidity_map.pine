@@ -75,15 +75,16 @@ findBar(target, useHigh) =>
 footprint fpData = request.footprint(i_fpT)
 float fpDelta    = not na(fpData) ? fpData.delta() : na
 
-// Rolling average |delta| for volume zone threshold
-var float fpSumAbs = 0.0
-var int   fpCount  = 0
+// Rolling average |delta| — window of last 100 bars, current bar excluded
+// so a bar cannot inflate its own threshold
+var array<float> fpWindow = array.new<float>()
 
-if not na(fpDelta)
-    fpSumAbs += math.abs(fpDelta)
-    fpCount  += 1
+if not na(fpDelta[1])
+    if array.size(fpWindow) >= 100
+        array.shift(fpWindow)
+    array.push(fpWindow, math.abs(fpDelta[1]))
 
-float fpAvgAbs = fpCount > 20 ? fpSumAbs / fpCount : na
+float fpAvgAbs = array.size(fpWindow) >= 20 ? array.avg(fpWindow) : na
 
 // ══════════════════════════════════════════════════════════════════
 //  PDH / PDL — start at the candle that formed the high/low
