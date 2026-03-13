@@ -599,26 +599,25 @@ var table leg = table.new(position.top_right, 1, 8,
 
 if barstate.islastconfirmedhistory
     table.cell(leg, 0, 0, "  LIQUIDITY ZONES  ",
-         text_color=#ECEFF1, text_size=size.small, bgcolor=#1B2631)
+         text_color=#ECEFF1, text_size=size.normal, bgcolor=#1B2631)
     table.cell(leg, 0, 1, "━━  PDH / PDL",
-         text_color=i_pdhCol, text_size=size.tiny)
+         text_color=i_pdhCol, text_size=size.small)
     table.cell(leg, 0, 2, "╍╍  EQH / EQL",
-         text_color=color.new(i_eqhCol, 0), text_size=size.tiny)
+         text_color=color.new(i_eqhCol, 0), text_size=size.small)
     table.cell(leg, 0, 3, "- -  HTF  (" + i_htfTF + ")",
-         text_color=color.new(i_htfHC, 0), text_size=size.tiny)
+         text_color=color.new(i_htfHC, 0), text_size=size.small)
     table.cell(leg, 0, 4, "···  Swing H / L",
-         text_color=color.new(i_bslCol, 50), text_size=size.tiny)
+         text_color=color.new(i_bslCol, 50), text_size=size.small)
     table.cell(leg, 0, 5, "◆   TARGET  (magnet)",
-         text_color=color.new(i_magCol, 0), text_size=size.tiny)
+         text_color=color.new(i_magCol, 0), text_size=size.small)
     table.cell(leg, 0, 6, "FP  FP confirmed zone",
-         text_color=color.new(i_fvCol, 0), text_size=size.tiny)
+         text_color=color.new(i_fvCol, 0), text_size=size.small)
 
 if barstate.islast
-    // FP data diagnostic — visible immediately in legend
     string fpStatus = na(fpAvgAbs)
          ? (array.size(fpWindow) < 20
-              ? "FP data: loading (" + str.tostring(array.size(fpWindow)) + "/20 bars)"
-              : "FP data: unavailable")
-         : "FP data: OK  |  avg |δ| = " + str.tostring(math.round(fpAvgAbs, 0))
+              ? "FP: loading (" + str.tostring(array.size(fpWindow)) + "/20)"
+              : "FP: no data")
+         : "FP: OK  avg |δ| = " + str.tostring(math.round(fpAvgAbs, 0))
     color fpDiagCol = na(fpAvgAbs) ? #FF5722 : color.new(i_fvCol, 0)
-    table.cell(leg, 0, 7, fpStatus, text_color=fpDiagCol, text_size=size.tiny)
+    table.cell(leg, 0, 7, fpStatus, text_color=fpDiagCol, text_size=size.small)
