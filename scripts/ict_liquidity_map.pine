@@ -41,9 +41,25 @@ i_htfHC  = input.color(#A5D6A7, "HTF High Color",                  group=grpClr)
 i_htfLC  = input.color(#FFAB91, "HTF Low Color",                   group=grpClr)
 i_fvCol  = input.color(#B388FF, "FP Confirmed Zone Color",           group=grpClr)
 i_pdSty  = input.string("solid",  "PDH/PDL Style", options=["solid","dashed","dotted"], group=grpClr)
+i_pdW    = input.int(2,           "PDH/PDL Width",  minval=1, maxval=4,                 group=grpClr)
 i_eqSty  = input.string("dashed", "EQH/EQL Style", options=["solid","dashed","dotted"], group=grpClr)
+i_eqW    = input.int(2,           "EQH/EQL Width",  minval=1, maxval=4,                 group=grpClr)
 i_htfSty = input.string("dashed", "HTF Style",     options=["solid","dashed","dotted"], group=grpClr)
+i_htfW   = input.int(1,           "HTF Width",      minval=1, maxval=4,                 group=grpClr)
 i_swSty  = input.string("dotted", "Swing Style",   options=["solid","dashed","dotted"], group=grpClr)
+i_swW    = input.int(1,           "Swing Width",    minval=1, maxval=4,                 group=grpClr)
+
+grpLbl = "Labels"
+i_pdhTxt  = input.string("PDH", "PDH text",   group=grpLbl)
+i_pdlTxt  = input.string("PDL", "PDL text",   group=grpLbl)
+i_pwhTxt  = input.string("PWH", "PWH text",   group=grpLbl)
+i_pwlTxt  = input.string("PWL", "PWL text",   group=grpLbl)
+i_eqhTxt  = input.string("EQH", "EQH text",   group=grpLbl)
+i_eqlTxt  = input.string("EQL", "EQL text",   group=grpLbl)
+i_bslTxt  = input.string("BSL", "BSL text",   group=grpLbl)
+i_sslTxt  = input.string("SSL", "SSL text",   group=grpLbl)
+i_htfHTxt = input.string("H",   "HTF H text", group=grpLbl)
+i_htfLTxt = input.string("L",   "HTF L text", group=grpLbl)
 
 grpVis = "Visual"
 i_ext    = input.int(30, "Extend Right (bars)", minval=5,  maxval=200, group=grpVis)
@@ -119,16 +135,18 @@ if i_pdOn and newDay and barstate.isconfirmed
     float bL = zoneH(pdL)
 
     pdh_ln := line.new(xH, pdH, rH, pdH,
-                 color=color.new(i_bslCol, 0), width=2, style=styleOf(i_pdSty))
+                 color=color.new(i_bslCol, 0), width=i_pdW, style=styleOf(i_pdSty))
     pdl_ln := line.new(xL, pdL, rL, pdL,
-                 color=color.new(i_sslCol, 0), width=2, style=styleOf(i_pdSty))
+                 color=color.new(i_sslCol, 0), width=i_pdW, style=styleOf(i_pdSty))
     pdh_bx := box.new(xH, pdH + bH, rH, pdH - bH,
                  bgcolor=color.new(i_bslCol, 88), border_color=na)
     pdl_bx := box.new(xL, pdL + bL, rL, pdL - bL,
                  bgcolor=color.new(i_sslCol, 88), border_color=na)
-    pdh_lb := label.new(rH + 1, pdH, text="PDH  " + priceStr(pdH),
+    string _pdhLbl = (str.length(i_pdhTxt) > 0 ? i_pdhTxt + "  " : "") + priceStr(pdH)
+    string _pdlLbl = (str.length(i_pdlTxt) > 0 ? i_pdlTxt + "  " : "") + priceStr(pdL)
+    pdh_lb := label.new(rH + 1, pdH, text=_pdhLbl,
                  style=label.style_none, textcolor=color.new(i_bslCol, 0), size=size.normal)
-    pdl_lb := label.new(rL + 1, pdL, text="PDL  " + priceStr(pdL),
+    pdl_lb := label.new(rL + 1, pdL, text=_pdlLbl,
                  style=label.style_none, textcolor=color.new(i_sslCol, 0), size=size.normal)
 
 if i_pwOn and newWeek and barstate.isconfirmed
@@ -141,12 +159,14 @@ if i_pwOn and newWeek and barstate.isconfirmed
     int rL = xL + i_ext
 
     pwh_ln := line.new(xH, pwH, rH, pwH,
-                 color=color.new(i_bslCol, 30), width=2, style=styleOf(i_pdSty))
+                 color=color.new(i_bslCol, 30), width=i_pdW, style=styleOf(i_pdSty))
     pwl_ln := line.new(xL, pwL, rL, pwL,
-                 color=color.new(i_sslCol, 30), width=2, style=styleOf(i_pdSty))
-    pwh_lb := label.new(rH + 1, pwH, text="PWH  " + priceStr(pwH),
+                 color=color.new(i_sslCol, 30), width=i_pdW, style=styleOf(i_pdSty))
+    string _pwhLbl = (str.length(i_pwhTxt) > 0 ? i_pwhTxt + "  " : "") + priceStr(pwH)
+    string _pwlLbl = (str.length(i_pwlTxt) > 0 ? i_pwlTxt + "  " : "") + priceStr(pwL)
+    pwh_lb := label.new(rH + 1, pwH, text=_pwhLbl,
                  style=label.style_none, textcolor=color.new(i_bslCol, 30), size=size.normal)
-    pwl_lb := label.new(rL + 1, pwL, text="PWL  " + priceStr(pwL),
+    pwl_lb := label.new(rL + 1, pwL, text=_pwlLbl,
                  style=label.style_none, textcolor=color.new(i_sslCol, 30), size=size.normal)
 
 // ══════════════════════════════════════════════════════════════════
@@ -183,7 +203,7 @@ if not na(swPH)
     float h = zoneH(swPH)
 
     array.push(sh_ln, line.new(x1, swPH, x2, swPH,
-         color=color.new(i_bslCol, 60), width=1, style=styleOf(i_swSty)))
+         color=color.new(i_bslCol, 60), width=i_swW, style=styleOf(i_swSty)))
     array.push(sh_bx, box.new(x1, swPH + h, x2, swPH - h,
          bgcolor=color.new(i_bslCol, 94), border_color=na))
     array.push(sh_lvl, swPH), array.push(sh_swpt, false)
@@ -201,7 +221,7 @@ if not na(swPL)
     float h = zoneH(swPL)
 
     array.push(sl_ln, line.new(x1, swPL, x2, swPL,
-         color=color.new(i_sslCol, 60), width=1, style=styleOf(i_swSty)))
+         color=color.new(i_sslCol, 60), width=i_swW, style=styleOf(i_swSty)))
     array.push(sl_bx, box.new(x1, swPL + h, x2, swPL - h,
          bgcolor=color.new(i_sslCol, 94), border_color=na))
     array.push(sl_lvl, swPL), array.push(sl_swpt, false)
@@ -245,9 +265,10 @@ if i_htfOn and not na(htfPH)
     int xH = findBar(htfPH, true)
     int rH = xH + i_ext
     array.push(htf_ln, line.new(xH, htfPH, rH, htfPH,
-         color=color.new(i_htfHC, 0), width=1, style=styleOf(i_htfSty)))
+         color=color.new(i_htfHC, 0), width=i_htfW, style=styleOf(i_htfSty)))
+    string _htfHLbl = i_htfTF + (str.length(i_htfHTxt) > 0 ? " " + i_htfHTxt : "") + "  " + priceStr(htfPH)
     array.push(htf_lb, label.new(rH + 1, htfPH,
-         text=i_htfTF + " H  " + priceStr(htfPH),
+         text=_htfHLbl,
          style=label.style_none, textcolor=color.new(i_htfHC, 0), size=size.small))
 
 if i_htfOn and not na(htfPL)
@@ -256,9 +277,10 @@ if i_htfOn and not na(htfPL)
     int xL = findBar(htfPL, false)
     int rL = xL + i_ext
     array.push(htf_ln, line.new(xL, htfPL, rL, htfPL,
-         color=color.new(i_htfLC, 0), width=1, style=styleOf(i_htfSty)))
+         color=color.new(i_htfLC, 0), width=i_htfW, style=styleOf(i_htfSty)))
+    string _htfLLbl = i_htfTF + (str.length(i_htfLTxt) > 0 ? " " + i_htfLTxt : "") + "  " + priceStr(htfPL)
     array.push(htf_lb, label.new(rL + 1, htfPL,
-         text=i_htfTF + " L  " + priceStr(htfPL),
+         text=_htfLLbl,
          style=label.style_none, textcolor=color.new(i_htfLC, 0), size=size.small))
 
 // ══════════════════════════════════════════════════════════════════
@@ -390,12 +412,13 @@ if barstate.islast
 
                 if isEQ
                     line.set_color(ln, color.new(i_eqhCol, 20))
-                    line.set_width(ln, 2)
+                    line.set_width(ln, i_eqW)
                     line.set_style(ln, styleOf(i_eqSty))
                     box.set_bgcolor(bx, color.new(i_eqhCol, 88))
                     box.set_border_color(bx, color.new(i_eqhCol, 60))
                     array.push(pLvl, lvl)
-                    array.push(pTxt, "EQH  " + priceStr(lvl))
+                    string _eqhTxt = (str.length(i_eqhTxt) > 0 ? i_eqhTxt : "EQH") + "  " + priceStr(lvl)
+                    array.push(pTxt, _eqhTxt)
                     array.push(pClr, color.new(i_eqhCol, 0))
                     array.push(pSz,  size.small)
                     array.push(pPri, 5)
@@ -403,7 +426,7 @@ if barstate.islast
                     bool fpConf = i_fpOn and not na(fpAvgAbs) and fp >= fpAvgAbs * i_fvThr
                     fade = math.max(70 - tch * 5, 30)
                     line.set_color(ln, color.new(i_bslCol, fade))
-                    line.set_width(ln, tch >= 5 ? 2 : 1)
+                    line.set_width(ln, tch >= 5 ? math.min(i_swW + 1, 4) : i_swW)
                     line.set_style(ln, tch >= 5 ? line.style_dashed : styleOf(i_swSty))
                     box.set_bgcolor(bx, color.new(i_bslCol, math.max(94 - tch, 85)))
                     if fpConf
@@ -415,6 +438,12 @@ if barstate.islast
                         array.push(pPri, 3)
                     else
                         box.set_border_color(bx, na)
+                        if str.length(i_bslTxt) > 0
+                            array.push(pLvl, lvl)
+                            array.push(pTxt, i_bslTxt + "  " + priceStr(lvl))
+                            array.push(pClr, color.new(i_bslCol, fade))
+                            array.push(pSz,  size.tiny)
+                            array.push(pPri, 1)
 
     // ── SSL zones ───────────────────────────────────────────────
     if slSz > 0
@@ -435,12 +464,13 @@ if barstate.islast
 
                 if isEQ
                     line.set_color(ln, color.new(i_eqlCol, 20))
-                    line.set_width(ln, 2)
+                    line.set_width(ln, i_eqW)
                     line.set_style(ln, styleOf(i_eqSty))
                     box.set_bgcolor(bx, color.new(i_eqlCol, 88))
                     box.set_border_color(bx, color.new(i_eqlCol, 60))
                     array.push(pLvl, lvl)
-                    array.push(pTxt, "EQL  " + priceStr(lvl))
+                    string _eqlTxt = (str.length(i_eqlTxt) > 0 ? i_eqlTxt : "EQL") + "  " + priceStr(lvl)
+                    array.push(pTxt, _eqlTxt)
                     array.push(pClr, color.new(i_eqlCol, 0))
                     array.push(pSz,  size.small)
                     array.push(pPri, 5)
@@ -448,7 +478,7 @@ if barstate.islast
                     bool fpConf = i_fpOn and not na(fpAvgAbs) and fp >= fpAvgAbs * i_fvThr
                     fade = math.max(70 - tch * 5, 30)
                     line.set_color(ln, color.new(i_sslCol, fade))
-                    line.set_width(ln, tch >= 5 ? 2 : 1)
+                    line.set_width(ln, tch >= 5 ? math.min(i_swW + 1, 4) : i_swW)
                     line.set_style(ln, tch >= 5 ? line.style_dashed : styleOf(i_swSty))
                     box.set_bgcolor(bx, color.new(i_sslCol, math.max(94 - tch, 85)))
                     if fpConf
@@ -460,28 +490,37 @@ if barstate.islast
                         array.push(pPri, 3)
                     else
                         box.set_border_color(bx, na)
+                        if str.length(i_sslTxt) > 0
+                            array.push(pLvl, lvl)
+                            array.push(pTxt, i_sslTxt + "  " + priceStr(lvl))
+                            array.push(pClr, color.new(i_sslCol, fade))
+                            array.push(pSz,  size.tiny)
+                            array.push(pPri, 1)
 
     // ── Apply MAGNET to strongest zone per side ─────────────────
+    string _bslLbl = str.length(i_bslTxt) > 0 ? i_bslTxt : "BSL"
+    string _sslLbl = str.length(i_sslTxt) > 0 ? i_sslTxt : "SSL"
+
     if magIdH >= 0
         line.set_color(array.get(sh_ln, magIdH), color.new(i_magCol, 0))
-        line.set_width(array.get(sh_ln, magIdH), 2)
+        line.set_width(array.get(sh_ln, magIdH), math.max(2, i_swW))
         line.set_style(array.get(sh_ln, magIdH), line.style_solid)
         box.set_bgcolor(array.get(sh_bx, magIdH), color.new(i_magCol, 85))
         box.set_border_color(array.get(sh_bx, magIdH), color.new(i_magCol, 40))
         array.push(pLvl, array.get(sh_lvl, magIdH))
-        array.push(pTxt, "◆ BSL TARGET  " + priceStr(array.get(sh_lvl, magIdH)))
+        array.push(pTxt, "◆ " + _bslLbl + " TARGET  " + priceStr(array.get(sh_lvl, magIdH)))
         array.push(pClr, color.new(i_magCol, 0))
         array.push(pSz,  size.normal)
         array.push(pPri, 10)
 
     if magIdL >= 0
         line.set_color(array.get(sl_ln, magIdL), color.new(i_magCol, 0))
-        line.set_width(array.get(sl_ln, magIdL), 2)
+        line.set_width(array.get(sl_ln, magIdL), math.max(2, i_swW))
         line.set_style(array.get(sl_ln, magIdL), line.style_solid)
         box.set_bgcolor(array.get(sl_bx, magIdL), color.new(i_magCol, 85))
         box.set_border_color(array.get(sl_bx, magIdL), color.new(i_magCol, 40))
         array.push(pLvl, array.get(sl_lvl, magIdL))
-        array.push(pTxt, "◆ SSL TARGET  " + priceStr(array.get(sl_lvl, magIdL)))
+        array.push(pTxt, "◆ " + _sslLbl + " TARGET  " + priceStr(array.get(sl_lvl, magIdL)))
         array.push(pClr, color.new(i_magCol, 0))
         array.push(pSz,  size.normal)
         array.push(pPri, 10)
