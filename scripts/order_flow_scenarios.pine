@@ -1,0 +1,193 @@
+//@version=6
+indicator("Order Flow Scenarios [OFS]", shorttitle="OFS", overlay=true,
+     max_labels_count=300)
+
+// ══════════════════════════════════════════════════════════════════
+//  POZNÁMKA
+//  Delta je aproximována z OHLCV dat (skutečná delta vyžaduje tick data).
+//  Vzorec: (2*close - high - low) / (high - low) * volume
+//  Hodnota +1 = close na high (100% buy pressure), -1 = close na low.
+//  Pro přesnou deltu je třeba broker feed s bid/ask volume (např. Bookmap).
+// ══════════════════════════════════════════════════════════════════
+
+// ══════════════════════════════════════════════════════════════════
+//  INPUTS
+// ══════════════════════════════════════════════════════════════════
+
+grpMain = "Nastavení"
+i_len    = input.int(14,   "Lookback perioda",         minval=5,  maxval=50,  group=grpMain)
+i_hiVol  = input.float(1.2, "Vysoký objem (×průměr)",  minval=1.0, maxval=3.0, step=0.1, group=grpMain)
+i_loVol  = input.float(0.75,"Nízký objem (×průměr)",   minval=0.3, maxval=1.0, step=0.05, group=grpMain)
+i_hiRng  = input.float(1.2, "Velký rozsah (×průměr)",  minval=1.0, maxval=3.0, step=0.1, group=grpMain)
+i_loRng  = input.float(0.75,"Malý rozsah (×průměr)",   minval=0.3, maxval=1.0, step=0.05, group=grpMain)
+
+grpScen = "Scénáře"
+i_showA = input.bool(true, "A — Normální pullback",      group=grpScen)
+i_showB = input.bool(true, "B — Vyčerpání (Exhaustion)", group=grpScen)
+i_showC = input.bool(true, "C — Agresivní reversal",     group=grpScen)
+i_showD = input.bool(true, "D — Bull Trap",              group=grpScen)
+i_showE = input.bool(true, "E — Bearish Divergence",     group=grpScen)
+
+grpViz = "Vizuály"
+i_showBg  = input.bool(false, "Zvýraznit pozadí",        group=grpViz)
+i_barClr  = input.bool(true,  "Obarvit svíčky scénářů",  group=grpViz)
+
+// ══════════════════════════════════════════════════════════════════
+//  DELTA APROXIMACE
+// ══════════════════════════════════════════════════════════════════
+
+range_sz = high - low
+
+// close na high  → delta ≈ +volume (kupující dominují)
+// close na low   → delta ≈ -volume (prodejci dominují)
+// close uprostřed → delta ≈ 0
+delta = range_sz > 0 ? (2.0 * close - high - low) / range_sz * volume : 0.0
+
+avg_vol    = ta.sma(volume,            i_len)
+avg_adelta = ta.sma(math.abs(delta),   i_len)
+avg_range  = ta.sma(range_sz,          i_len)
+
+// ══════════════════════════════════════════════════════════════════
+//  POMOCNÉ PROMĚNNÉ
+// ══════════════════════════════════════════════════════════════════
+
+is_red   = close < open
+is_green = close >= open
+uptrend  = close > ta.ema(close, i_len)
+
+// Delta momentum: porovnání průměru delta posledních 3 vs. 3 starší svíčky
+delta_now = ta.sma(delta[1], 3)   // průměr delta za bary 1-3 (před aktuální červenou)
+delta_old = ta.sma(delta[5], 3)   // průměr delta za bary 5-7 (starší)
+
+// ══════════════════════════════════════════════════════════════════
+//  SCÉNÁŘ A — Normální pullback
+//  Červená svíčka, malý rozsah, nízký objem, mírná záporná delta
+//  Závěr: zdravá korekce, trend pravděpodobně pokračuje
+// ══════════════════════════════════════════════════════════════════
+
+scen_A = is_red
+       and uptrend
+       and range_sz  < avg_range  * i_loRng
+       and volume    < avg_vol    * i_loVol
+       and delta     > -avg_adelta * 0.8
+
+// ══════════════════════════════════════════════════════════════════
+//  SCÉNÁŘ B — Vyčerpání (Exhaustion)
+//  3+ zelené svíčky s postupně klesající deltou a objemem → červená
+//  Závěr: trend ztrácí palivo, možný obrat nebo delší konsolidace
+// ══════════════════════════════════════════════════════════════════
+
+green_series  = is_green[1] and is_green[2] and is_green[3]
+delta_decline = delta[1] < delta[2] and delta[2] < delta[3]
+vol_decline   = volume[1] < volume[2] and volume[2] < volume[3]
+
+scen_B = is_red
+       and green_series
+       and delta_decline
+       and vol_decline
+
+// ══════════════════════════════════════════════════════════════════
+//  SCÉNÁŘ C — Agresivní reversal / Distribuce
+//  Velká červená svíčka, vysoký objem, silná záporná delta
+//  Závěr: silní hráči agresivně prodávají, pravděpodobný reversal
+// ══════════════════════════════════════════════════════════════════
+
+scen_C = is_red
+       and range_sz > avg_range   * i_hiRng
+       and volume   > avg_vol     * i_hiVol
+       and delta    < -avg_adelta * i_hiVol
+
+// ══════════════════════════════════════════════════════════════════
+//  SCÉNÁŘ D — Bull Trap
+//  Předchozí svíčka prorazila na nové high → aktuální velká červená
+//  Závěr: MM prodávali do breakoutu, retail longs uvězněni
+// ══════════════════════════════════════════════════════════════════
+
+// Předchozí svíčka udělala nové high oproti N barům před ní
+prev_newhigh = high[1] > ta.highest(high[2], i_len)
+
+scen_D = is_red
+       and prev_newhigh
+       and volume > avg_vol    * 1.0
+       and delta  < -avg_adelta * 0.8
+
+// ══════════════════════════════════════════════════════════════════
+//  SCÉNÁŘ E — Bearish Divergence
+//  Cena v uptrendu, ale delta momentum klesá → červená potvrzuje
+//  Závěr: kupující ztrácí zájem, každý nový high stojí méně energie
+// ══════════════════════════════════════════════════════════════════
+
+price_uptrend_ok = close[1] > close[5]   // cena šla nahoru v posledních 5 barech
+delta_dropping   = delta_now < delta_old  // ale delta momentum klesá
+
+scen_E = is_red
+       and uptrend
+       and price_uptrend_ok
+       and delta_dropping
+       and not scen_B  // B je specifičtější forma, nepřekrývat
+
+// ══════════════════════════════════════════════════════════════════
+//  PRIORITA & VÝBĚR SCÉNÁŘE (silnější přebije slabší)
+//  D > C > B > E > A
+// ══════════════════════════════════════════════════════════════════
+
+active = scen_D and i_showD ? "D" :
+         scen_C and i_showC ? "C" :
+         scen_B and i_showB ? "B" :
+         scen_E and i_showE ? "E" :
+         scen_A and i_showA ? "A" : ""
+
+// ══════════════════════════════════════════════════════════════════
+//  BARVY
+// ══════════════════════════════════════════════════════════════════
+
+col_A = color.new(color.gray,   10)   // šedá  — slabý signal
+col_B = color.new(color.orange, 10)   // oranžová — varování
+col_C = color.new(color.red,    10)   // červená — silný reversal
+col_D = color.new(color.purple, 10)   // fialová — past
+col_E = color.new(color.yellow, 10)   // žlutá — divergence
+
+scen_col = active == "A" ? col_A :
+           active == "B" ? col_B :
+           active == "C" ? col_C :
+           active == "D" ? col_D :
+           active == "E" ? col_E : na
+
+scen_txt = active == "A" ? "A\nPullback"    :
+           active == "B" ? "B\nExhaustion"  :
+           active == "C" ? "C\nReversal"    :
+           active == "D" ? "D\nBull Trap"   :
+           active == "E" ? "E\nDiv"         : ""
+
+// ══════════════════════════════════════════════════════════════════
+//  VÝSTUP — labels, pozadí, barva svíček
+// ══════════════════════════════════════════════════════════════════
+
+if active != ""
+    label.new(bar_index, high, scen_txt,
+         color     = scen_col,
+         textcolor = color.white,
+         style     = label.style_label_down,
+         size      = size.small)
+
+// Volitelné obarvení svíček
+barcolor(i_barClr and active != "" ? scen_col : na)
+
+// Volitelné pozadí
+bgcolor(i_showBg and active != "" ? color.new(scen_col, 85) : na)
+
+// ══════════════════════════════════════════════════════════════════
+//  DELTA HISTOGRAM (přidat jako separátní pane)
+//  → v Pine Editoru zkopíruj níže uvedený kód do nového skriptu
+//
+//  //@version=6
+//  indicator("Delta Approx", overlay=false)
+//  range_sz = high - low
+//  delta = range_sz > 0 ? (2.0*close - high - low) / range_sz * volume : 0.0
+//  avg_delta = ta.sma(math.abs(delta), 14)
+//  plot(delta, "Delta", color=delta >= 0 ? color.teal : color.red,
+//       style=plot.style_columns)
+//  plot( avg_delta, "Avg+", color=color.new(color.gray,50))
+//  plot(-avg_delta, "Avg-", color=color.new(color.gray,50))
+//  hline(0)
+// ══════════════════════════════════════════════════════════════════
