@@ -593,7 +593,7 @@ if barstate.islast
 //  LEGEND
 // ══════════════════════════════════════════════════════════════════
 
-var table leg = table.new(position.top_right, 1, 7,
+var table leg = table.new(position.top_right, 1, 8,
      bgcolor=color.new(#1B2631, 15), border_width=0,
      frame_color=color.new(#37474F, 0), frame_width=1)
 
@@ -612,3 +612,13 @@ if barstate.islastconfirmedhistory
          text_color=color.new(i_magCol, 0), text_size=size.tiny)
     table.cell(leg, 0, 6, "FP  FP confirmed zone",
          text_color=color.new(i_fvCol, 0), text_size=size.tiny)
+
+if barstate.islast
+    // FP data diagnostic — visible immediately in legend
+    string fpStatus = na(fpAvgAbs)
+         ? (array.size(fpWindow) < 20
+              ? "FP data: loading (" + str.tostring(array.size(fpWindow)) + "/20 bars)"
+              : "FP data: unavailable")
+         : "FP data: OK  |  avg |δ| = " + str.tostring(math.round(fpAvgAbs, 0))
+    color fpDiagCol = na(fpAvgAbs) ? #FF5722 : color.new(i_fvCol, 0)
+    table.cell(leg, 0, 7, fpStatus, text_color=fpDiagCol, text_size=size.tiny)
