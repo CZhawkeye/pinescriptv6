@@ -339,7 +339,7 @@ int slSz = array.size(sl_lvl)
 // Touch radius: wider than the visual zone box so that bars approaching
 // the level (within ATR-scaled proximity) are counted as interactions.
 // Uses max of visual zone height and 8% of ATR.
-float _touchH = math.max(zoneH(na), _atr * 0.08)
+float _touchH = math.max(float(syminfo.mintick * i_zTicks), _atr * 0.08)
 
 if shSz > 0
     for i = 0 to shSz - 1
