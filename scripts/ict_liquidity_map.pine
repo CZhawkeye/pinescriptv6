@@ -9,7 +9,10 @@ indicator("ICT Liquidity Zones", shorttitle="ICT Liq", overlay=true,
 grpSW  = "Swing Structure"
 i_swL  = input.int(5,    "Left Bars",          minval=1, maxval=20,  group=grpSW)
 i_swR  = input.int(5,    "Right Bars",         minval=1, maxval=20,  group=grpSW)
-i_swN  = input.int(4,    "Max Levels per Side",minval=2, maxval=12,  group=grpSW)
+i_swN    = input.int(4,    "Max Levels per Side",minval=2, maxval=12,  group=grpSW)
+i_strOn  = input.bool(true,  "Detect Strong Pivots",                            group=grpSW)
+i_strAtr = input.float(1.2,  "  Min Impulse (×ATR)", minval=0.5, maxval=3.0, step=0.1,  group=grpSW)
+i_strBdy = input.float(0.55, "  Min Body Ratio",     minval=0.2, maxval=0.9, step=0.05, group=grpSW)
 
 grpEQ  = "Equal Highs / Lows"
 i_eqOn = input.bool(true,  "Detect EQH / EQL",                      group=grpEQ)
@@ -199,6 +202,7 @@ var array<bool>  sh_swpt = array.new<bool>()
 var array<int>   sh_tch  = array.new<int>()
 var array<float> sh_fp   = array.new<float>()
 var array<bool>  sh_isEQ = array.new<bool>()
+var array<bool>  sh_str  = array.new<bool>()
 
 var array<float> sl_lvl  = array.new<float>()
 var array<line>  sl_ln   = array.new<line>()
@@ -207,6 +211,7 @@ var array<bool>  sl_swpt = array.new<bool>()
 var array<int>   sl_tch  = array.new<int>()
 var array<float> sl_fp   = array.new<float>()
 var array<bool>  sl_isEQ = array.new<bool>()
+var array<bool>  sl_str  = array.new<bool>()
 
 // Absorption sweep tracking: recently swept SSL/BSL levels + their bar_index
 var array<float> slSweepLvl = array.new<float>()
@@ -220,7 +225,7 @@ if not na(swPH)
     if array.size(sh_ln) >= i_swN
         line.delete(array.shift(sh_ln)), box.delete(array.shift(sh_bx))
         array.shift(sh_lvl), array.shift(sh_swpt)
-        array.shift(sh_tch), array.shift(sh_fp), array.shift(sh_isEQ)
+        array.shift(sh_tch), array.shift(sh_fp), array.shift(sh_isEQ), array.shift(sh_str)
 
     int x1  = bar_index - i_swR
     int x2  = x1 + i_ext
@@ -233,12 +238,17 @@ if not na(swPH)
     array.push(sh_lvl, swPH), array.push(sh_swpt, false)
     array.push(sh_tch, 0),    array.push(sh_fp, 0.0)
     array.push(sh_isEQ, false)
+    float _rng_ph = high[i_swR] - low[i_swR]
+    float _bdy_ph = math.abs(close[i_swR] - open[i_swR])
+    array.push(sh_str, i_strOn
+         and _rng_ph > ta.atr(14) * i_strAtr
+         and (_rng_ph > 0 ? _bdy_ph / _rng_ph : 0.0) > i_strBdy)
 
 if not na(swPL)
     if array.size(sl_ln) >= i_swN
         line.delete(array.shift(sl_ln)), box.delete(array.shift(sl_bx))
         array.shift(sl_lvl), array.shift(sl_swpt)
-        array.shift(sl_tch), array.shift(sl_fp), array.shift(sl_isEQ)
+        array.shift(sl_tch), array.shift(sl_fp), array.shift(sl_isEQ), array.shift(sl_str)
 
     int x1  = bar_index - i_swR
     int x2  = x1 + i_ext
@@ -251,6 +261,11 @@ if not na(swPL)
     array.push(sl_lvl, swPL), array.push(sl_swpt, false)
     array.push(sl_tch, 0),    array.push(sl_fp, 0.0)
     array.push(sl_isEQ, false)
+    float _rng_pl = high[i_swR] - low[i_swR]
+    float _bdy_pl = math.abs(close[i_swR] - open[i_swR])
+    array.push(sl_str, i_strOn
+         and _rng_pl > ta.atr(14) * i_strAtr
+         and (_rng_pl > 0 ? _bdy_pl / _rng_pl : 0.0) > i_strBdy)
 
 // ══════════════════════════════════════════════════════════════════
 //  EQH / EQL — mark matching swing zones
@@ -478,13 +493,14 @@ if barstate.islast
         for i = 0 to shSz - 1
             if not array.get(sh_swpt, i)
                 isEQ  = array.get(sh_isEQ, i)
+                isStr = array.get(sh_str,  i)
                 tch   = array.get(sh_tch, i)
                 fp    = array.get(sh_fp, i)
                 lvl   = array.get(sh_lvl, i)
                 ln    = array.get(sh_ln, i)
                 bx    = array.get(sh_bx, i)
 
-                score = tch + fp / norm + (isEQ ? 5.0 : 0.0)
+                score = tch + fp / norm + (isEQ ? 5.0 : 0.0) + (isStr ? 3.0 : 0.0)
 
                 if score > bestH
                     bestH  := score
@@ -520,23 +536,24 @@ if barstate.islast
                         box.set_border_color(bx, na)
                         if str.length(i_bslTxt) > 0
                             array.push(pLvl, lvl)
-                            array.push(pTxt, i_bslTxt)
+                            array.push(pTxt, isStr ? i_bslTxt + " ★" : i_bslTxt)
                             array.push(pClr, color.new(i_bslCol, fade))
                             array.push(pSz,  size.tiny)
-                            array.push(pPri, 1)
+                            array.push(pPri, isStr ? 2 : 1)
 
     // ── SSL zones ───────────────────────────────────────────────
     if slSz > 0
         for i = 0 to slSz - 1
             if not array.get(sl_swpt, i)
                 isEQ  = array.get(sl_isEQ, i)
+                isStr = array.get(sl_str,  i)
                 tch   = array.get(sl_tch, i)
                 fp    = array.get(sl_fp, i)
                 lvl   = array.get(sl_lvl, i)
                 ln    = array.get(sl_ln, i)
                 bx    = array.get(sl_bx, i)
 
-                score = tch + fp / norm + (isEQ ? 5.0 : 0.0)
+                score = tch + fp / norm + (isEQ ? 5.0 : 0.0) + (isStr ? 3.0 : 0.0)
 
                 if score > bestL
                     bestL  := score
@@ -572,10 +589,10 @@ if barstate.islast
                         box.set_border_color(bx, na)
                         if str.length(i_sslTxt) > 0
                             array.push(pLvl, lvl)
-                            array.push(pTxt, i_sslTxt)
+                            array.push(pTxt, isStr ? i_sslTxt + " ★" : i_sslTxt)
                             array.push(pClr, color.new(i_sslCol, fade))
                             array.push(pSz,  size.tiny)
-                            array.push(pPri, 1)
+                            array.push(pPri, isStr ? 2 : 1)
 
     // ── Apply MAGNET to strongest zone per side ─────────────────
     string _bslLbl = str.length(i_bslTxt) > 0 ? i_bslTxt : "BSL"
@@ -588,7 +605,7 @@ if barstate.islast
         box.set_bgcolor(array.get(sh_bx, magIdH), color.new(i_magCol, 85))
         box.set_border_color(array.get(sh_bx, magIdH), color.new(i_magCol, 40))
         array.push(pLvl, array.get(sh_lvl, magIdH))
-        array.push(pTxt, "◆ " + _bslLbl)
+        array.push(pTxt, array.get(sh_str, magIdH) ? "◆ " + _bslLbl + " ★" : "◆ " + _bslLbl)
         array.push(pClr, color.new(i_magCol, 0))
         array.push(pSz,  size.normal)
         array.push(pPri, 10)
@@ -600,7 +617,7 @@ if barstate.islast
         box.set_bgcolor(array.get(sl_bx, magIdL), color.new(i_magCol, 85))
         box.set_border_color(array.get(sl_bx, magIdL), color.new(i_magCol, 40))
         array.push(pLvl, array.get(sl_lvl, magIdL))
-        array.push(pTxt, "◆ " + _sslLbl)
+        array.push(pTxt, array.get(sl_str, magIdL) ? "◆ " + _sslLbl + " ★" : "◆ " + _sslLbl)
         array.push(pClr, color.new(i_magCol, 0))
         array.push(pSz,  size.normal)
         array.push(pPri, 10)
@@ -672,7 +689,7 @@ if barstate.islastconfirmedhistory
          text_color=color.new(i_htfHC, 0), text_size=size.small)
     table.cell(leg, 0, 4, "···  Swing H / L",
          text_color=color.new(i_bslCol, 50), text_size=size.small)
-    table.cell(leg, 0, 5, "◆   TARGET  (magnet)",
+    table.cell(leg, 0, 5, "◆   TARGET  (magnet)   ★ = strong pivot",
          text_color=color.new(i_magCol, 0), text_size=size.small)
     table.cell(leg, 0, 6, "FP  FP confirmed zone",
          text_color=color.new(i_fvCol, 0), text_size=size.small)
