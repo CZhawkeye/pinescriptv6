@@ -81,56 +81,8 @@ findBar(target, useHigh) =>
             break
     found
 
-// ══════════════════════════════════════════════════════════════════
-//  STACKED IMBALANCE — UDM callback state (script-level for each_row)
-//
-//  Pine Script v6 UDMs cannot reassign global `var float` with :=
-//  Workaround: pack all mutable state into a var array<float> and use
-//  array.set() — object mutation is allowed from within UDMs.
-//
-//  _siAcc layout:  [0]=lo  [1]=hi  [2]=cnt  [3]=dir(1=buy/-1=sell/0=none)
-// ══════════════════════════════════════════════════════════════════
-
-var array<float> _siAcc    = array.from(float(na), float(na), 0.0, 0.0)
-var array<float> _siStacks = array.new<float>()   // output triples: [lo, hi, dir, ...]
-
-// Flush the active candidate stack into _siStacks
-method _siFlush(volume_row this) =>
-    float cnt = array.get(_siAcc, 2)
-    float lo  = array.get(_siAcc, 0)
-    if cnt >= float(i_siMin) and not na(lo)
-        array.push(_siStacks, lo)
-        array.push(_siStacks, array.get(_siAcc, 1))
-        array.push(_siStacks, array.get(_siAcc, 3))
-    array.set(_siAcc, 0, float(na))
-    array.set(_siAcc, 1, float(na))
-    array.set(_siAcc, 2, 0.0)
-    array.set(_siAcc, 3, 0.0)
-
-// Per-row callback — each_row iterates bottom→top price
-method _siRow(volume_row this) =>
-    float ask = this.ask_volume()
-    float bid = this.bid_volume()
-    bool buyImbal  = not na(ask) and not na(bid) and bid > 0.0 and ask / bid >= i_siRat
-    bool sellImbal = not na(ask) and not na(bid) and ask > 0.0 and bid / ask >= i_siRat
-    float curDir   = array.get(_siAcc, 3)
-
-    if buyImbal
-        if curDir != 1.0
-            this._siFlush()
-            array.set(_siAcc, 0, this.down_price())
-            array.set(_siAcc, 3, 1.0)
-        array.set(_siAcc, 1, this.up_price())
-        array.set(_siAcc, 2, array.get(_siAcc, 2) + 1.0)
-    else if sellImbal
-        if curDir != -1.0
-            this._siFlush()
-            array.set(_siAcc, 0, this.down_price())
-            array.set(_siAcc, 3, -1.0)
-        array.set(_siAcc, 1, this.up_price())
-        array.set(_siAcc, 2, array.get(_siAcc, 2) + 1.0)
-    else
-        this._siFlush()
+// (Stacked Imbalance detection uses fpData.size() / fpData.get() below —
+//  no UDMs needed; all state is local to the barstate.isconfirmed block)
 
 // ══════════════════════════════════════════════════════════════════
 //  FOOTPRINT
@@ -377,53 +329,88 @@ if i_fvOn and not na(fpAvgAbs) and not na(fpData) and not na(fpDelta)
 //  STACKED IMBALANCES — institutional order flow clusters
 //  Buy stack  → demand zone → short stops ABOVE (BSL)
 //  Sell stack → supply zone → long stops BELOW  (SSL)
+//
+//  Iterates rows via fpData.size() / fpData.get(i) — all state is
+//  local to this block, no UDMs required, no global-var restriction.
 // ══════════════════════════════════════════════════════════════════
 
 if i_siOn and not na(fpData) and barstate.isconfirmed
-    // Reset accumulator and output buffer for this bar
-    array.clear(_siStacks)
-    array.set(_siAcc, 0, float(na))
-    array.set(_siAcc, 1, float(na))
-    array.set(_siAcc, 2, 0.0)
-    array.set(_siAcc, 3, 0.0)
+    int nRows = fpData.size()
+    if nRows > 0
+        // ── Local-only state machine ─────────────────────────────
+        float siLo  = na
+        float siHi  = na
+        float siCnt = 0.0
+        float siDir = 0.0   // 1=buy, -1=sell
+        array<float> stacks = array.new<float>()  // output triples
 
-    // Iterate every price row bottom→top, collecting imbalance stacks
-    fpData.each_row(_siRow)
+        for i = 0 to nRows - 1
+            volume_row r   = fpData.get(i)
+            float ask      = r.ask_volume()
+            float bid      = r.bid_volume()
+            bool buyImbal  = not na(ask) and not na(bid) and bid > 0.0 and ask / bid >= i_siRat
+            bool sellImbal = not na(ask) and not na(bid) and ask > 0.0 and bid / ask >= i_siRat
 
-    // Flush any open stack that reached the top of the bar
-    float _finalCnt = array.get(_siAcc, 2)
-    float _finalLo  = array.get(_siAcc, 0)
-    if _finalCnt >= float(i_siMin) and not na(_finalLo)
-        array.push(_siStacks, _finalLo)
-        array.push(_siStacks, array.get(_siAcc, 1))
-        array.push(_siStacks, array.get(_siAcc, 3))
-    array.set(_siAcc, 0, float(na))
-    array.set(_siAcc, 1, float(na))
-    array.set(_siAcc, 2, 0.0)
-    array.set(_siAcc, 3, 0.0)
+            if buyImbal
+                if siDir != 1.0
+                    if siCnt >= float(i_siMin) and not na(siLo)  // flush previous
+                        array.push(stacks, siLo)
+                        array.push(stacks, siHi)
+                        array.push(stacks, siDir)
+                    siLo := r.down_price()
+                    siDir := 1.0
+                    siCnt := 0.0
+                siHi  := r.up_price()
+                siCnt += 1.0
+            else if sellImbal
+                if siDir != -1.0
+                    if siCnt >= float(i_siMin) and not na(siLo)  // flush previous
+                        array.push(stacks, siLo)
+                        array.push(stacks, siHi)
+                        array.push(stacks, siDir)
+                    siLo := r.down_price()
+                    siDir := -1.0
+                    siCnt := 0.0
+                siHi  := r.up_price()
+                siCnt += 1.0
+            else
+                if siCnt >= float(i_siMin) and not na(siLo)      // flush on break
+                    array.push(stacks, siLo)
+                    array.push(stacks, siHi)
+                    array.push(stacks, siDir)
+                siLo := na
+                siHi := na
+                siCnt := 0.0
+                siDir := 0.0
 
-    // Draw all stacks detected on this bar
-    int stSz = array.size(_siStacks)
-    int si   = 0
-    while si + 2 < stSz
-        float lo  = array.get(_siStacks, si)
-        float hi  = array.get(_siStacks, si + 1)
-        float dir = array.get(_siStacks, si + 2)
-        color c   = dir > 0.0 ? i_siColB : i_siColS
-        string lbl= dir > 0.0 ? "SI▲" : "SI▼"
-        float mid = (hi + lo) / 2.0
+        // Final flush for stack that reached the last row
+        if siCnt >= float(i_siMin) and not na(siLo)
+            array.push(stacks, siLo)
+            array.push(stacks, siHi)
+            array.push(stacks, siDir)
 
-        if array.size(si_bx) >= 12
-            box.delete(array.shift(si_bx))
-            label.delete(array.shift(si_lb))
-            array.shift(si_lvl)
+        // ── Draw detected stacks ─────────────────────────────────
+        int stSz = array.size(stacks)
+        int k    = 0
+        while k + 2 < stSz
+            float lo  = array.get(stacks, k)
+            float hi  = array.get(stacks, k + 1)
+            float dir = array.get(stacks, k + 2)
+            color c   = dir > 0.0 ? i_siColB : i_siColS
+            string lbl= dir > 0.0 ? "SI▲" : "SI▼"
+            float mid = (hi + lo) / 2.0
 
-        array.push(si_bx, box.new(bar_index, hi, bar_index + i_ext, lo,
-             bgcolor=color.new(c, 82), border_color=color.new(c, 48)))
-        array.push(si_lb, label.new(bar_index + i_ext + 1, mid,
-             text=lbl, style=label.style_none, textcolor=c, size=size.tiny))
-        array.push(si_lvl, mid)
-        si += 3
+            if array.size(si_bx) >= 12
+                box.delete(array.shift(si_bx))
+                label.delete(array.shift(si_lb))
+                array.shift(si_lvl)
+
+            array.push(si_bx, box.new(bar_index, hi, bar_index + i_ext, lo,
+                 bgcolor=color.new(c, 82), border_color=color.new(c, 48)))
+            array.push(si_lb, label.new(bar_index + i_ext + 1, mid,
+                 text=lbl, style=label.style_none, textcolor=c, size=size.tiny))
+            array.push(si_lvl, mid)
+            k += 3
 
 // ══════════════════════════════════════════════════════════════════
 //  ABSORPTION — large delta + narrow range = hidden limit orders
