@@ -31,35 +31,48 @@ i_fpOn = input.bool(true,  "Score Zones with Footprint",            group=grpFP)
 i_fpT  = input.int(4,      "Ticks Per Row",     minval=1,           group=grpFP)
 i_fvThr= input.float(2.0,  "FP Confirmation Threshold (× avg delta)",minval=0.5, maxval=8.0, group=grpFP, step=0.5)
 
-grpClr = "Colors & Styles"
-i_bslCol = input.color(#00E676, "BSL Color (above price)",          group=grpClr)
-i_sslCol = input.color(#FF1744, "SSL Color (below price)",          group=grpClr)
-i_eqhCol = input.color(#00BCD4, "EQH Color",                       group=grpClr)
-i_eqlCol = input.color(#FF6F00, "EQL Color",                       group=grpClr)
-i_magCol = input.color(#FFD600, "Target / Magnet Color",            group=grpClr)
-i_htfHC  = input.color(#A5D6A7, "HTF High Color",                  group=grpClr)
-i_htfLC  = input.color(#FFAB91, "HTF Low Color",                   group=grpClr)
-i_fvCol  = input.color(#B388FF, "FP Confirmed Zone Color",           group=grpClr)
-i_pdSty  = input.string("solid",  "PDH/PDL Style", options=["solid","dashed","dotted"], group=grpClr)
-i_pdW    = input.int(2,           "PDH/PDL Width",  minval=1, maxval=4,                 group=grpClr)
-i_eqSty  = input.string("dashed", "EQH/EQL Style", options=["solid","dashed","dotted"], group=grpClr)
-i_eqW    = input.int(2,           "EQH/EQL Width",  minval=1, maxval=4,                 group=grpClr)
-i_htfSty = input.string("dashed", "HTF Style",     options=["solid","dashed","dotted"], group=grpClr)
-i_htfW   = input.int(1,           "HTF Width",      minval=1, maxval=4,                 group=grpClr)
-i_swSty  = input.string("dotted", "Swing Style",   options=["solid","dashed","dotted"], group=grpClr)
-i_swW    = input.int(1,           "Swing Width",    minval=1, maxval=4,                 group=grpClr)
+grpZones = "Zones"
+// Each row: color  text  style  width  (style/width apply to both sides of the pair)
+i_bslCol  = input.color(#00E676,  "BSL",   group=grpZones, inline="bsl")
+i_bslTxt  = input.string("BSL",   "",      group=grpZones, inline="bsl")
+i_swSty   = input.string("dotted","",      options=["solid","dashed","dotted"], group=grpZones, inline="bsl")
+i_swW     = input.int(1,          "",      minval=1, maxval=4, group=grpZones, inline="bsl")
 
-grpLbl = "Labels"
-i_pdhTxt  = input.string("PDH", "PDH text",   group=grpLbl)
-i_pdlTxt  = input.string("PDL", "PDL text",   group=grpLbl)
-i_pwhTxt  = input.string("PWH", "PWH text",   group=grpLbl)
-i_pwlTxt  = input.string("PWL", "PWL text",   group=grpLbl)
-i_eqhTxt  = input.string("EQH", "EQH text",   group=grpLbl)
-i_eqlTxt  = input.string("EQL", "EQL text",   group=grpLbl)
-i_bslTxt  = input.string("BSL", "BSL text",   group=grpLbl)
-i_sslTxt  = input.string("SSL", "SSL text",   group=grpLbl)
-i_htfHTxt = input.string("H",   "HTF H text", group=grpLbl)
-i_htfLTxt = input.string("L",   "HTF L text", group=grpLbl)
+i_sslCol  = input.color(#FF1744,  "SSL",   group=grpZones, inline="ssl")
+i_sslTxt  = input.string("SSL",   "",      group=grpZones, inline="ssl")
+
+i_eqhCol  = input.color(#00BCD4,  "EQH",  group=grpZones, inline="eqh")
+i_eqhTxt  = input.string("EQH",   "",      group=grpZones, inline="eqh")
+i_eqSty   = input.string("dashed","",      options=["solid","dashed","dotted"], group=grpZones, inline="eqh")
+i_eqW     = input.int(2,          "",      minval=1, maxval=4, group=grpZones, inline="eqh")
+
+i_eqlCol  = input.color(#FF6F00,  "EQL",  group=grpZones, inline="eql")
+i_eqlTxt  = input.string("EQL",   "",      group=grpZones, inline="eql")
+
+i_pdhCol  = input.color(#00E676,  "PDH",  group=grpZones, inline="pdh")
+i_pdhTxt  = input.string("PDH",   "",      group=grpZones, inline="pdh")
+i_pdSty   = input.string("solid", "",      options=["solid","dashed","dotted"], group=grpZones, inline="pdh")
+i_pdW     = input.int(2,          "",      minval=1, maxval=4, group=grpZones, inline="pdh")
+
+i_pdlCol  = input.color(#FF1744,  "PDL",  group=grpZones, inline="pdl")
+i_pdlTxt  = input.string("PDL",   "",      group=grpZones, inline="pdl")
+
+i_pwhCol  = input.color(#00E676,  "PWH",  group=grpZones, inline="pwh")
+i_pwhTxt  = input.string("PWH",   "",      group=grpZones, inline="pwh")
+
+i_pwlCol  = input.color(#FF1744,  "PWL",  group=grpZones, inline="pwl")
+i_pwlTxt  = input.string("PWL",   "",      group=grpZones, inline="pwl")
+
+i_htfHC   = input.color(#A5D6A7,  "HTF H",group=grpZones, inline="htfh")
+i_htfHTxt = input.string("H",     "",      group=grpZones, inline="htfh")
+i_htfSty  = input.string("dashed","",      options=["solid","dashed","dotted"], group=grpZones, inline="htfh")
+i_htfW    = input.int(1,          "",      minval=1, maxval=4, group=grpZones, inline="htfh")
+
+i_htfLC   = input.color(#FFAB91,  "HTF L",group=grpZones, inline="htfl")
+i_htfLTxt = input.string("L",     "",      group=grpZones, inline="htfl")
+
+i_magCol  = input.color(#FFD600,  "Magnet",group=grpZones, inline="mag")
+i_fvCol   = input.color(#B388FF,  "FP",    group=grpZones, inline="fp")
 
 grpVis = "Visual"
 i_ext    = input.int(30, "Extend Right (bars)", minval=5,  maxval=200, group=grpVis)
@@ -135,19 +148,19 @@ if i_pdOn and newDay and barstate.isconfirmed
     float bL = zoneH(pdL)
 
     pdh_ln := line.new(xH, pdH, rH, pdH,
-                 color=color.new(i_bslCol, 0), width=i_pdW, style=styleOf(i_pdSty))
+                 color=i_pdhCol, width=i_pdW, style=styleOf(i_pdSty))
     pdl_ln := line.new(xL, pdL, rL, pdL,
-                 color=color.new(i_sslCol, 0), width=i_pdW, style=styleOf(i_pdSty))
+                 color=i_pdlCol, width=i_pdW, style=styleOf(i_pdSty))
     pdh_bx := box.new(xH, pdH + bH, rH, pdH - bH,
-                 bgcolor=color.new(i_bslCol, 88), border_color=na)
+                 bgcolor=color.new(i_pdhCol, 88), border_color=na)
     pdl_bx := box.new(xL, pdL + bL, rL, pdL - bL,
-                 bgcolor=color.new(i_sslCol, 88), border_color=na)
+                 bgcolor=color.new(i_pdlCol, 88), border_color=na)
     string _pdhLbl = (str.length(i_pdhTxt) > 0 ? i_pdhTxt + "  " : "") + priceStr(pdH)
     string _pdlLbl = (str.length(i_pdlTxt) > 0 ? i_pdlTxt + "  " : "") + priceStr(pdL)
     pdh_lb := label.new(rH + 1, pdH, text=_pdhLbl,
-                 style=label.style_none, textcolor=color.new(i_bslCol, 0), size=size.normal)
+                 style=label.style_none, textcolor=i_pdhCol, size=size.normal)
     pdl_lb := label.new(rL + 1, pdL, text=_pdlLbl,
-                 style=label.style_none, textcolor=color.new(i_sslCol, 0), size=size.normal)
+                 style=label.style_none, textcolor=i_pdlCol, size=size.normal)
 
 if i_pwOn and newWeek and barstate.isconfirmed
     line.delete(pwh_ln), line.delete(pwl_ln)
@@ -159,15 +172,15 @@ if i_pwOn and newWeek and barstate.isconfirmed
     int rL = xL + i_ext
 
     pwh_ln := line.new(xH, pwH, rH, pwH,
-                 color=color.new(i_bslCol, 30), width=i_pdW, style=styleOf(i_pdSty))
+                 color=i_pwhCol, width=i_pdW, style=styleOf(i_pdSty))
     pwl_ln := line.new(xL, pwL, rL, pwL,
-                 color=color.new(i_sslCol, 30), width=i_pdW, style=styleOf(i_pdSty))
+                 color=i_pwlCol, width=i_pdW, style=styleOf(i_pdSty))
     string _pwhLbl = (str.length(i_pwhTxt) > 0 ? i_pwhTxt + "  " : "") + priceStr(pwH)
     string _pwlLbl = (str.length(i_pwlTxt) > 0 ? i_pwlTxt + "  " : "") + priceStr(pwL)
     pwh_lb := label.new(rH + 1, pwH, text=_pwhLbl,
-                 style=label.style_none, textcolor=color.new(i_bslCol, 30), size=size.normal)
+                 style=label.style_none, textcolor=i_pwhCol, size=size.normal)
     pwl_lb := label.new(rL + 1, pwL, text=_pwlLbl,
-                 style=label.style_none, textcolor=color.new(i_sslCol, 30), size=size.normal)
+                 style=label.style_none, textcolor=i_pwlCol, size=size.normal)
 
 // ══════════════════════════════════════════════════════════════════
 //  SWING LEVELS — zones where retail stops accumulate
@@ -585,7 +598,7 @@ if barstate.islastconfirmedhistory
     table.cell(leg, 0, 0, "  LIQUIDITY ZONES  ",
          text_color=#ECEFF1, text_size=size.small, bgcolor=#1B2631)
     table.cell(leg, 0, 1, "━━  PDH / PDL",
-         text_color=color.new(i_bslCol, 0), text_size=size.tiny)
+         text_color=i_pdhCol, text_size=size.tiny)
     table.cell(leg, 0, 2, "╍╍  EQH / EQL",
          text_color=color.new(i_eqhCol, 0), text_size=size.tiny)
     table.cell(leg, 0, 3, "- -  HTF  (" + i_htfTF + ")",
