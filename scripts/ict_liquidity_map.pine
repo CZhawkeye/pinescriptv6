@@ -83,52 +83,52 @@ findBar(target, useHigh) =>
 
 // ══════════════════════════════════════════════════════════════════
 //  STACKED IMBALANCE — UDM callback state (script-level for each_row)
+//
+//  Pine Script v6 UDMs cannot reassign global `var float` with :=
+//  Workaround: pack all mutable state into a var array<float> and use
+//  array.set() — object mutation is allowed from within UDMs.
+//
+//  _siAcc layout:  [0]=lo  [1]=hi  [2]=cnt  [3]=dir(1=buy/-1=sell/0=none)
 // ══════════════════════════════════════════════════════════════════
 
-// Accumulator state — reset before each confirmed bar's each_row call
-var float        _siLo     = na      // bottom of current candidate stack
-var float        _siHi     = na      // top of current candidate stack
-var float        _siCnt    = 0.0     // rows accumulated in current stack
-var float        _siDir    = 0.0     // 1.0 = buy imbalance, -1.0 = sell
+var array<float> _siAcc    = array.from(float(na), float(na), 0.0, 0.0)
+var array<float> _siStacks = array.new<float>()   // output triples: [lo, hi, dir, ...]
 
-// Completed stacks from the current bar — flat array of triples [lo, hi, dir, ...]
-var array<float> _siStacks = array.new<float>()
-
-// Flush current candidate into _siStacks (called when stack breaks or row ends)
+// Flush the active candidate stack into _siStacks
 method _siFlush(volume_row this) =>
-    if _siCnt >= float(i_siMin) and not na(_siLo)
-        array.push(_siStacks, _siLo)
-        array.push(_siStacks, _siHi)
-        array.push(_siStacks, _siDir)
-    _siLo  := na
-    _siHi  := na
-    _siCnt := 0.0
-    _siDir := 0.0
+    float cnt = array.get(_siAcc, 2)
+    float lo  = array.get(_siAcc, 0)
+    if cnt >= float(i_siMin) and not na(lo)
+        array.push(_siStacks, lo)
+        array.push(_siStacks, array.get(_siAcc, 1))
+        array.push(_siStacks, array.get(_siAcc, 3))
+    array.set(_siAcc, 0, float(na))
+    array.set(_siAcc, 1, float(na))
+    array.set(_siAcc, 2, 0.0)
+    array.set(_siAcc, 3, 0.0)
 
-// Per-row callback passed to fpData.each_row()
-// each_row iterates bottom → top price, so stacks build naturally
+// Per-row callback — each_row iterates bottom→top price
 method _siRow(volume_row this) =>
     float ask = this.ask_volume()
     float bid = this.bid_volume()
-    // Buy imbalance: aggressive buyers >> sellers at this price level
     bool buyImbal  = not na(ask) and not na(bid) and bid > 0.0 and ask / bid >= i_siRat
-    // Sell imbalance: aggressive sellers >> buyers at this price level
     bool sellImbal = not na(ask) and not na(bid) and ask > 0.0 and bid / ask >= i_siRat
+    float curDir   = array.get(_siAcc, 3)
 
     if buyImbal
-        if _siDir != 1.0
+        if curDir != 1.0
             this._siFlush()
-            _siLo := this.down_price()
-            _siDir := 1.0
-        _siHi  := this.up_price()
-        _siCnt += 1.0
+            array.set(_siAcc, 0, this.down_price())
+            array.set(_siAcc, 3, 1.0)
+        array.set(_siAcc, 1, this.up_price())
+        array.set(_siAcc, 2, array.get(_siAcc, 2) + 1.0)
     else if sellImbal
-        if _siDir != -1.0
+        if curDir != -1.0
             this._siFlush()
-            _siLo := this.down_price()
-            _siDir := -1.0
-        _siHi  := this.up_price()
-        _siCnt += 1.0
+            array.set(_siAcc, 0, this.down_price())
+            array.set(_siAcc, 3, -1.0)
+        array.set(_siAcc, 1, this.up_price())
+        array.set(_siAcc, 2, array.get(_siAcc, 2) + 1.0)
     else
         this._siFlush()
 
@@ -382,23 +382,25 @@ if i_fvOn and not na(fpAvgAbs) and not na(fpData) and not na(fpDelta)
 if i_siOn and not na(fpData) and barstate.isconfirmed
     // Reset accumulator and output buffer for this bar
     array.clear(_siStacks)
-    _siLo  := na
-    _siHi  := na
-    _siCnt := 0.0
-    _siDir := 0.0
+    array.set(_siAcc, 0, float(na))
+    array.set(_siAcc, 1, float(na))
+    array.set(_siAcc, 2, 0.0)
+    array.set(_siAcc, 3, 0.0)
 
     // Iterate every price row bottom→top, collecting imbalance stacks
     fpData.each_row(_siRow)
 
     // Flush any open stack that reached the top of the bar
-    if _siCnt >= float(i_siMin) and not na(_siLo)
-        array.push(_siStacks, _siLo)
-        array.push(_siStacks, _siHi)
-        array.push(_siStacks, _siDir)
-    _siLo  := na
-    _siHi  := na
-    _siCnt := 0.0
-    _siDir := 0.0
+    float _finalCnt = array.get(_siAcc, 2)
+    float _finalLo  = array.get(_siAcc, 0)
+    if _finalCnt >= float(i_siMin) and not na(_finalLo)
+        array.push(_siStacks, _finalLo)
+        array.push(_siStacks, array.get(_siAcc, 1))
+        array.push(_siStacks, array.get(_siAcc, 3))
+    array.set(_siAcc, 0, float(na))
+    array.set(_siAcc, 1, float(na))
+    array.set(_siAcc, 2, 0.0)
+    array.set(_siAcc, 3, 0.0)
 
     // Draw all stacks detected on this bar
     int stSz = array.size(_siStacks)
