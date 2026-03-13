@@ -24,26 +24,12 @@ i_htfOn= input.bool(true,       "Show HTF Swings",                  group=grpHTF
 i_htfTF= input.timeframe("60",  "Timeframe",                        group=grpHTF)
 
 grpFP  = "Footprint (Premium)"
+// Footprint acts as a secondary scoring layer on top of structural zones.
+// It does NOT create new zones — instead it highlights swing/session levels
+// where order flow (delta + imbalances) confirms liquidity accumulation.
 i_fpOn = input.bool(true,  "Score Zones with Footprint",            group=grpFP)
 i_fpT  = input.int(4,      "Ticks Per Row",     minval=1,           group=grpFP)
-i_fvOn = input.bool(true,  "Show High-Volume Zones (POC)",          group=grpFP)
-i_fvThr= input.float(2.0,  "Volume Zone Threshold (x avg delta)",minval=1.2, maxval=5.0, group=grpFP, step=0.1)
-
-grpSI    = "Stacked Imbalances"
-// Pine v6: has_buy_imbalance() / has_sell_imbalance() on poc(), vah(), val()
-// SI▲: ≥ N of the 3 key rows have buy imbalance + positive delta confirmation
-// SI▼: ≥ N of the 3 key rows have sell imbalance + negative delta confirmation
-i_siOn   = input.bool(true,    "Show Stacked Imbalances",              group=grpSI)
-i_siRat  = input.float(0.5,    "Min Delta Multiple (× avg)",           minval=0.0, maxval=5.0, step=0.5, group=grpSI)
-i_siMin  = input.int(2,        "Min Imbalance Rows (1-3)",             minval=1,   maxval=3,              group=grpSI)
-i_siColB = input.color(#00E5FF,"Buy Stack Color",                      group=grpSI)
-i_siColS = input.color(#FF6E40,"Sell Stack Color",                     group=grpSI)
-
-grpAbs   = "Absorption"
-i_absOn  = input.bool(true,    "Show Absorption Zones",                 group=grpAbs)
-i_absVThr= input.float(1.5,    "Min Delta Multiple (× avg)",            minval=1.0, maxval=5.0, step=0.1, group=grpAbs)
-i_absRThr= input.float(0.5,    "Max Bar Range (× ATR)",                 minval=0.1, maxval=1.5, step=0.1, group=grpAbs)
-i_absCol = input.color(#E040FB,"Absorption Color",                      group=grpAbs)
+i_fvThr= input.float(2.0,  "FP Confirmation Threshold (× avg delta)",minval=0.5, maxval=8.0, group=grpFP, step=0.5)
 
 grpClr = "Colors & Styles"
 i_bslCol = input.color(#00E676, "BSL Color (above price)",          group=grpClr)
@@ -53,7 +39,7 @@ i_eqlCol = input.color(#FF6F00, "EQL Color",                       group=grpClr)
 i_magCol = input.color(#FFD600, "Target / Magnet Color",            group=grpClr)
 i_htfHC  = input.color(#A5D6A7, "HTF High Color",                  group=grpClr)
 i_htfLC  = input.color(#FFAB91, "HTF Low Color",                   group=grpClr)
-i_fvCol  = input.color(#B388FF, "Volume Zone Color",                group=grpClr)
+i_fvCol  = input.color(#B388FF, "FP Confirmed Zone Color",           group=grpClr)
 i_pdSty  = input.string("solid",  "PDH/PDL Style", options=["solid","dashed","dotted"], group=grpClr)
 i_eqSty  = input.string("dashed", "EQH/EQL Style", options=["solid","dashed","dotted"], group=grpClr)
 i_htfSty = input.string("dashed", "HTF Style",     options=["solid","dashed","dotted"], group=grpClr)
@@ -83,8 +69,6 @@ findBar(target, useHigh) =>
             found := bar_index - lb
             break
     found
-
-// (SI detection uses fpData.poc() + delta below — no UDMs needed)
 
 // ══════════════════════════════════════════════════════════════════
 //  FOOTPRINT
@@ -278,132 +262,40 @@ if i_htfOn and not na(htfPL)
          style=label.style_none, textcolor=color.new(i_htfLC, 0), size=size.small))
 
 // ══════════════════════════════════════════════════════════════════
-//  FOOTPRINT VOLUME ZONES — institutional entry detection
-//  When |delta| on a bar >> average, the POC marks where
-//  large orders were placed. This IS a liquidity zone.
-//  Large buy → institutional long → stops below (SSL)
-//  Large sell → institutional short → stops above (BSL)
-// ══════════════════════════════════════════════════════════════════
-
-var array<line>  fv_ln  = array.new<line>()
-var array<box>   fv_bx  = array.new<box>()
-var array<label> fv_lb  = array.new<label>()
-var array<float> fv_lvl = array.new<float>()
-
-// Stacked imbalance zones (max 12 kept)
-var array<box>   si_bx  = array.new<box>()
-var array<label> si_lb  = array.new<label>()
-var array<float> si_lvl = array.new<float>()   // midpoint of each SI zone
-
-// Absorption zones (max 6 kept)
-var array<box>   abs_bx = array.new<box>()
-var array<label> abs_lb = array.new<label>()
-var array<float> abs_lvl= array.new<float>()
-
-if i_fvOn and not na(fpAvgAbs) and not na(fpData) and not na(fpDelta)
-    if math.abs(fpDelta) > fpAvgAbs * i_fvThr
-        volume_row poc = fpData.poc()
-        if not na(poc)
-            float pocHi = poc.up_price()
-            float pocLo = poc.down_price()
-            float pocMid = (pocHi + pocLo) / 2.0
-
-            if array.size(fv_ln) >= 6
-                line.delete(array.shift(fv_ln))
-                box.delete(array.shift(fv_bx))
-                label.delete(array.shift(fv_lb))
-                array.shift(fv_lvl)
-
-            int x2 = bar_index + i_ext
-            array.push(fv_ln, line.new(bar_index, pocMid, x2, pocMid,
-                 color=color.new(i_fvCol, 20), width=1, style=line.style_dashed))
-            array.push(fv_bx, box.new(bar_index, pocHi, x2, pocLo,
-                 bgcolor=color.new(i_fvCol, 90), border_color=color.new(i_fvCol, 60)))
-
-            string dir = fpDelta > 0 ? "BUY" : "SELL"
-            array.push(fv_lb, label.new(x2 + 1, pocMid,
-                 text="HV " + dir + "  " + priceStr(pocMid),
-                 style=label.style_none, textcolor=color.new(i_fvCol, 0),
-                 size=size.tiny))
-            array.push(fv_lvl, pocMid)
-
-// ══════════════════════════════════════════════════════════════════
-//  STACKED IMBALANCES — native has_buy/sell_imbalance() per row
-//
-//  Pine v6 volume_row exposes has_buy_imbalance() and
-//  has_sell_imbalance() on each of the 3 accessible rows:
-//  poc(), vah(), val(). We count how many share the same direction
-//  and require a minimum delta confirmation.
-//    SI▲: buyCount  >= i_siMin AND delta >  avg × i_siRat
-//    SI▼: sellCount >= i_siMin AND delta < -avg × i_siRat
-// ══════════════════════════════════════════════════════════════════
-
-if i_siOn and not na(fpData) and not na(fpAvgAbs) and not na(fpDelta) and barstate.isconfirmed
-    volume_row siPoc = fpData.poc()
-    volume_row siVah = fpData.vah()
-    volume_row siVal = fpData.val()
-    if not na(siPoc) and not na(siVah) and not na(siVal)
-        int buyCount  = (siPoc.has_buy_imbalance()  ? 1 : 0) +
-                        (siVal.has_buy_imbalance()   ? 1 : 0) +
-                        (siVah.has_buy_imbalance()   ? 1 : 0)
-        int sellCount = (siPoc.has_sell_imbalance() ? 1 : 0) +
-                        (siVal.has_sell_imbalance()  ? 1 : 0) +
-                        (siVah.has_sell_imbalance()  ? 1 : 0)
-
-        float deltaMin   = fpAvgAbs * i_siRat
-        bool buyCluster  = buyCount  >= i_siMin and fpDelta >  deltaMin
-        bool sellCluster = sellCount >= i_siMin and fpDelta < -deltaMin
-
-        if buyCluster or sellCluster
-            color c    = buyCluster ? i_siColB : i_siColS
-            float zHi  = siPoc.up_price()
-            float zLo  = siPoc.down_price()
-            float zMid = (zHi + zLo) / 2.0
-
-            if array.size(si_bx) >= 12
-                box.delete(array.shift(si_bx))
-                label.delete(array.shift(si_lb))
-                array.shift(si_lvl)
-
-            array.push(si_bx, box.new(bar_index, zHi, bar_index + i_ext, zLo,
-                 bgcolor=color.new(c, 82), border_color=color.new(c, 48)))
-            array.push(si_lb, label.new(bar_index + i_ext + 1, zMid,
-                 text=(buyCluster ? "SI▲" : "SI▼"),
-                 style=label.style_none, textcolor=c, size=size.tiny))
-            array.push(si_lvl, zMid)
-
-// ══════════════════════════════════════════════════════════════════
-//  ABSORPTION — large delta + narrow range = hidden limit orders
-//  Large buy delta but price didn't rally  → sellers absorbed → supply zone
-//  Large sell delta but price didn't fall  → buyers absorbed → demand zone
-//  Stop accumulation: absorbed side's participants place stops just beyond zone
+//  ATR
 // ══════════════════════════════════════════════════════════════════
 
 float _atr = ta.atr(14)
 
-if i_absOn and not na(fpAvgAbs) and not na(fpDelta) and _atr > 0 and barstate.isconfirmed
-    bool bigDelta   = math.abs(fpDelta) >= fpAvgAbs * i_absVThr
-    bool thinRange  = (high - low) / _atr <= i_absRThr
+// ══════════════════════════════════════════════════════════════════
+//  FOOTPRINT DIRECTION — per-bar imbalance counts at key rows
+//
+//  Pine v6 exposes has_buy/sell_imbalance() on poc(), vah(), val().
+//  We count matching rows per direction and use it to weight the
+//  fp accumulation on structural zones that price touches this bar:
+//    BSL (swing high / supply): sell imbalance = confirmation
+//    SSL (swing low  / demand): buy  imbalance = confirmation
+//  Weight = 1.0 + imbalance_count × 0.33  (max ~2× at 3 matching rows)
+// ══════════════════════════════════════════════════════════════════
 
-    if bigDelta and thinRange
-        float absLvl = (high + low) / 2.0
-        // Arrow shows WHERE the absorbed pressure will resurface as price moves there
-        string absLbl = fpDelta > 0 ? "ABS▼" : "ABS▲"
-        float h = syminfo.mintick * i_zTicks * 2
+int _fpSellCount = 0
+int _fpBuyCount  = 0
 
-        if array.size(abs_bx) >= 6
-            box.delete(array.shift(abs_bx))
-            label.delete(array.shift(abs_lb))
-            array.shift(abs_lvl)
-
-        array.push(abs_bx, box.new(bar_index, absLvl + h, bar_index + i_ext, absLvl - h,
-             bgcolor=color.new(i_absCol, 84), border_color=color.new(i_absCol, 50)))
-        array.push(abs_lb, label.new(bar_index + i_ext + 1, absLvl,
-             text=absLbl, style=label.style_none, textcolor=i_absCol, size=size.tiny))
-        array.push(abs_lvl, absLvl)
+if i_fpOn and not na(fpData) and not na(fpDelta)
+    volume_row _poc = fpData.poc()
+    volume_row _vah = fpData.vah()
+    volume_row _val = fpData.val()
+    if not na(_poc) and not na(_vah) and not na(_val)
+        _fpBuyCount  := (_poc.has_buy_imbalance()  ? 1 : 0) +
+                        (_val.has_buy_imbalance()   ? 1 : 0) +
+                        (_vah.has_buy_imbalance()   ? 1 : 0)
+        _fpSellCount := (_poc.has_sell_imbalance() ? 1 : 0) +
+                        (_val.has_sell_imbalance()  ? 1 : 0) +
+                        (_vah.has_sell_imbalance()  ? 1 : 0)
 
 // ══════════════════════════════════════════════════════════════════
 //  PER-BAR: TOUCH SCORING + FP ACCUMULATION
+//  fp weight: +0.33 per matching imbalance row (directional confirmation)
 // ══════════════════════════════════════════════════════════════════
 
 int shSz = array.size(sh_lvl)
@@ -417,7 +309,8 @@ if shSz > 0
             if low <= lvl + h and high >= lvl - h
                 array.set(sh_tch, i, array.get(sh_tch, i) + 1)
                 if i_fpOn and not na(fpDelta)
-                    array.set(sh_fp, i, array.get(sh_fp, i) + math.abs(fpDelta))
+                    float w = 1.0 + _fpSellCount * 0.33  // sell imbalance confirms supply
+                    array.set(sh_fp, i, array.get(sh_fp, i) + math.abs(fpDelta) * w)
 
 if slSz > 0
     for i = 0 to slSz - 1
@@ -427,7 +320,8 @@ if slSz > 0
             if low <= lvl + h and high >= lvl - h
                 array.set(sl_tch, i, array.get(sl_tch, i) + 1)
                 if i_fpOn and not na(fpDelta)
-                    array.set(sl_fp, i, array.get(sl_fp, i) + math.abs(fpDelta))
+                    float w = 1.0 + _fpBuyCount * 0.33   // buy imbalance confirms demand
+                    array.set(sl_fp, i, array.get(sl_fp, i) + math.abs(fpDelta) * w)
 
 // ══════════════════════════════════════════════════════════════════
 //  SWEPT = DELETE — zone without stops is useless
@@ -475,7 +369,7 @@ if barstate.islast
     array<string> pTxt = array.new<string>()
     array<color>  pClr = array.new<color>()
     array<string> pSz  = array.new<string>()
-    array<int>    pPri = array.new<int>()   // 10=target, 5=EQ, 1=regular
+    array<int>    pPri = array.new<int>()   // 10=target, 5=EQ, 3=FP confirmed, 1=regular
 
     // ── BSL zones ───────────────────────────────────────────────
     if shSz > 0
@@ -488,23 +382,7 @@ if barstate.islast
                 ln    = array.get(sh_ln, i)
                 bx    = array.get(sh_bx, i)
 
-                // Stacked-imbalance confirmation boost (+3 if SI zone near level)
-                float siBoostH = 0.0
-                int siSzH = array.size(si_lvl)
-                if siSzH > 0
-                    for k = 0 to siSzH - 1
-                        if math.abs(lvl - array.get(si_lvl, k)) <= minGap
-                            siBoostH := 3.0
-                            break
-                // Absorption confirmation boost (+4 if Absorption zone near level)
-                float absBoostH = 0.0
-                int absSzH = array.size(abs_lvl)
-                if absSzH > 0
-                    for k = 0 to absSzH - 1
-                        if math.abs(lvl - array.get(abs_lvl, k)) <= minGap
-                            absBoostH := 4.0
-                            break
-                score = tch + fp / norm + (isEQ ? 5.0 : 0.0) + siBoostH + absBoostH
+                score = tch + fp / norm + (isEQ ? 5.0 : 0.0)
 
                 if score > bestH
                     bestH  := score
@@ -522,11 +400,21 @@ if barstate.islast
                     array.push(pSz,  size.small)
                     array.push(pPri, 5)
                 else
+                    bool fpConf = i_fpOn and not na(fpAvgAbs) and fp >= fpAvgAbs * i_fvThr
                     fade = math.max(70 - tch * 5, 30)
                     line.set_color(ln, color.new(i_bslCol, fade))
                     line.set_width(ln, tch >= 5 ? 2 : 1)
                     line.set_style(ln, tch >= 5 ? line.style_dashed : styleOf(i_swSty))
                     box.set_bgcolor(bx, color.new(i_bslCol, math.max(94 - tch, 85)))
+                    if fpConf
+                        box.set_border_color(bx, color.new(i_fvCol, 35))
+                        array.push(pLvl, lvl)
+                        array.push(pTxt, "FP  " + priceStr(lvl))
+                        array.push(pClr, color.new(i_fvCol, 0))
+                        array.push(pSz,  size.tiny)
+                        array.push(pPri, 3)
+                    else
+                        box.set_border_color(bx, na)
 
     // ── SSL zones ───────────────────────────────────────────────
     if slSz > 0
@@ -539,23 +427,7 @@ if barstate.islast
                 ln    = array.get(sl_ln, i)
                 bx    = array.get(sl_bx, i)
 
-                // Stacked-imbalance confirmation boost
-                float siBoostL = 0.0
-                int siSzL = array.size(si_lvl)
-                if siSzL > 0
-                    for k = 0 to siSzL - 1
-                        if math.abs(lvl - array.get(si_lvl, k)) <= minGap
-                            siBoostL := 3.0
-                            break
-                // Absorption confirmation boost
-                float absBoostL = 0.0
-                int absSzL = array.size(abs_lvl)
-                if absSzL > 0
-                    for k = 0 to absSzL - 1
-                        if math.abs(lvl - array.get(abs_lvl, k)) <= minGap
-                            absBoostL := 4.0
-                            break
-                score = tch + fp / norm + (isEQ ? 5.0 : 0.0) + siBoostL + absBoostL
+                score = tch + fp / norm + (isEQ ? 5.0 : 0.0)
 
                 if score > bestL
                     bestL  := score
@@ -573,11 +445,21 @@ if barstate.islast
                     array.push(pSz,  size.small)
                     array.push(pPri, 5)
                 else
+                    bool fpConf = i_fpOn and not na(fpAvgAbs) and fp >= fpAvgAbs * i_fvThr
                     fade = math.max(70 - tch * 5, 30)
                     line.set_color(ln, color.new(i_sslCol, fade))
                     line.set_width(ln, tch >= 5 ? 2 : 1)
                     line.set_style(ln, tch >= 5 ? line.style_dashed : styleOf(i_swSty))
                     box.set_bgcolor(bx, color.new(i_sslCol, math.max(94 - tch, 85)))
+                    if fpConf
+                        box.set_border_color(bx, color.new(i_fvCol, 35))
+                        array.push(pLvl, lvl)
+                        array.push(pTxt, "FP  " + priceStr(lvl))
+                        array.push(pClr, color.new(i_fvCol, 0))
+                        array.push(pSz,  size.tiny)
+                        array.push(pPri, 3)
+                    else
+                        box.set_border_color(bx, na)
 
     // ── Apply MAGNET to strongest zone per side ─────────────────
     if magIdH >= 0
@@ -656,7 +538,7 @@ if barstate.islast
 //  LEGEND
 // ══════════════════════════════════════════════════════════════════
 
-var table leg = table.new(position.top_right, 1, 9,
+var table leg = table.new(position.top_right, 1, 7,
      bgcolor=color.new(#1B2631, 15), border_width=0,
      frame_color=color.new(#37474F, 0), frame_width=1)
 
@@ -673,9 +555,5 @@ if barstate.islastconfirmedhistory
          text_color=color.new(i_bslCol, 50), text_size=size.tiny)
     table.cell(leg, 0, 5, "◆   TARGET  (magnet)",
          text_color=color.new(i_magCol, 0), text_size=size.tiny)
-    table.cell(leg, 0, 6, "▪   HV Zone  (footprint)",
+    table.cell(leg, 0, 6, "FP  FP confirmed zone",
          text_color=color.new(i_fvCol, 0), text_size=size.tiny)
-    table.cell(leg, 0, 7, "SI▲▼  Stacked Imbalance",
-         text_color=color.new(i_siColB, 0), text_size=size.tiny)
-    table.cell(leg, 0, 8, "ABS   Absorption Zone",
-         text_color=color.new(i_absCol, 0), text_size=size.tiny)
