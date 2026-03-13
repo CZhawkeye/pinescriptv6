@@ -30,11 +30,14 @@ i_fvOn = input.bool(true,  "Show High-Volume Zones (POC)",          group=grpFP)
 i_fvThr= input.float(2.0,  "Volume Zone Threshold (x avg delta)",minval=1.2, maxval=5.0, group=grpFP, step=0.1)
 
 grpSI    = "Stacked Imbalances"
+// Detected via POC position + delta (row-level API unavailable in Pine v6)
+// SI▲: delta > avg×Threshold AND POC in lowest Edge% of bar  → buy cluster
+// SI▼: delta < -avg×Threshold AND POC in highest Edge% of bar → sell cluster
 i_siOn   = input.bool(true,    "Show Stacked Imbalances",              group=grpSI)
-i_siRat  = input.float(3.0,    "Imbalance Ratio (×, 3 = 300%)",        minval=1.5, maxval=10.0, step=0.5, group=grpSI)
-i_siMin  = input.int(3,        "Min Consecutive Rows",                  minval=2,   maxval=8,              group=grpSI)
-i_siColB = input.color(#00E5FF,"Buy Stack Color",                       group=grpSI)
-i_siColS = input.color(#FF6E40,"Sell Stack Color",                      group=grpSI)
+i_siRat  = input.float(1.5,    "Min Delta Multiple (× avg)",           minval=0.5, maxval=5.0, step=0.5, group=grpSI)
+i_siMin  = input.int(35,       "POC Max Distance from Edge (%)",       minval=10,  maxval=50,             group=grpSI)
+i_siColB = input.color(#00E5FF,"Buy Stack Color",                      group=grpSI)
+i_siColS = input.color(#FF6E40,"Sell Stack Color",                     group=grpSI)
 
 grpAbs   = "Absorption"
 i_absOn  = input.bool(true,    "Show Absorption Zones",                 group=grpAbs)
@@ -81,24 +84,7 @@ findBar(target, useHigh) =>
             break
     found
 
-// ══════════════════════════════════════════════════════════════════
-//  STACKED IMBALANCE — row data collector
-//
-//  each_row() is the only way to iterate footprint rows.
-//  UDMs cannot reassign global vars (:=) or call array.set().
-//  Minimal UDM: only array.push() into a global buffer.
-//  Stacked-imbalance logic then runs in the main body with local vars.
-//
-//  Buffer layout per row: [ask_vol, bid_vol, lo_price, hi_price]
-// ══════════════════════════════════════════════════════════════════
-
-var array<float> _rowBuf = array.new<float>()
-
-method _collectRow(volume_row this) =>
-    array.push(_rowBuf, this.ask_volume())
-    array.push(_rowBuf, this.bid_volume())
-    array.push(_rowBuf, this.down_price())
-    array.push(_rowBuf, this.up_price())
+// (SI detection uses fpData.poc() + delta below — no UDMs needed)
 
 // ══════════════════════════════════════════════════════════════════
 //  FOOTPRINT
@@ -342,88 +328,46 @@ if i_fvOn and not na(fpAvgAbs) and not na(fpData) and not na(fpDelta)
             array.push(fv_lvl, pocMid)
 
 // ══════════════════════════════════════════════════════════════════
-//  STACKED IMBALANCES — institutional order flow clusters
-//  Buy stack  → demand zone → short stops ABOVE (BSL)
-//  Sell stack → supply zone → long stops BELOW  (SSL)
+//  STACKED IMBALANCES — POC + delta proxy
 //
-//  1. each_row fills _rowBuf (UDM only does array.push — no := / set)
-//  2. Main body iterates _rowBuf with fully local state
+//  Pine v6 footprint API exposes only delta() and poc() — no row
+//  iteration. We approximate stacked imbalances via:
+//    SI▲: delta > avg × threshold  AND  POC in bottom Edge% of bar
+//         → aggressive buyers pushed price up from the low
+//         → short stops cluster ABOVE this level (BSL)
+//    SI▼: delta < -avg × threshold AND  POC in top Edge% of bar
+//         → aggressive sellers pushed price down from the high
+//         → long stops cluster BELOW this level (SSL)
 // ══════════════════════════════════════════════════════════════════
 
-if i_siOn and not na(fpData) and barstate.isconfirmed
-    array.clear(_rowBuf)
-    fpData.each_row(_collectRow)
+if i_siOn and not na(fpData) and not na(fpAvgAbs) and not na(fpDelta) and barstate.isconfirmed
+    volume_row siPoc = fpData.poc()
+    float barRange = high - low
+    if not na(siPoc) and barRange > 0
+        float pocMid = (siPoc.up_price() + siPoc.down_price()) / 2.0
+        float pocPos = (pocMid - low) / barRange   // 0.0 = at low, 1.0 = at high
+        float edgeThr = float(i_siMin) / 100.0     // e.g. 35 → 0.35
 
-    int nRows = array.size(_rowBuf) / 4
-    if nRows > 0
-        // ── Local-only state machine ─────────────────────────────
-        float siLo  = na
-        float siHi  = na
-        float siCnt = 0.0
-        float siDir = 0.0   // 1=buy, -1=sell
-        array<float> stacks = array.new<float>()  // output triples [lo,hi,dir]
+        bool buyCluster  = fpDelta >  fpAvgAbs * i_siRat and pocPos <= edgeThr
+        bool sellCluster = fpDelta < -fpAvgAbs * i_siRat and pocPos >= (1.0 - edgeThr)
 
-        for i = 0 to nRows - 1
-            float askVol = array.get(_rowBuf, i * 4)
-            float bidVol = array.get(_rowBuf, i * 4 + 1)
-            float rowLo  = array.get(_rowBuf, i * 4 + 2)
-            float rowHi  = array.get(_rowBuf, i * 4 + 3)
-
-            bool buyImbal  = not na(askVol) and not na(bidVol) and bidVol > 0.0 and askVol / bidVol >= i_siRat
-            bool sellImbal = not na(askVol) and not na(bidVol) and askVol > 0.0 and bidVol / askVol >= i_siRat
-
-            if buyImbal
-                if siDir != 1.0
-                    if siCnt >= float(i_siMin) and not na(siLo)
-                        array.push(stacks, siLo), array.push(stacks, siHi), array.push(stacks, siDir)
-                    siLo := rowLo
-                    siDir := 1.0
-                    siCnt := 0.0
-                siHi  := rowHi
-                siCnt += 1.0
-            else if sellImbal
-                if siDir != -1.0
-                    if siCnt >= float(i_siMin) and not na(siLo)
-                        array.push(stacks, siLo), array.push(stacks, siHi), array.push(stacks, siDir)
-                    siLo := rowLo
-                    siDir := -1.0
-                    siCnt := 0.0
-                siHi  := rowHi
-                siCnt += 1.0
-            else
-                if siCnt >= float(i_siMin) and not na(siLo)
-                    array.push(stacks, siLo), array.push(stacks, siHi), array.push(stacks, siDir)
-                siLo := na
-                siHi := na
-                siCnt := 0.0
-                siDir := 0.0
-
-        // Final flush
-        if siCnt >= float(i_siMin) and not na(siLo)
-            array.push(stacks, siLo), array.push(stacks, siHi), array.push(stacks, siDir)
-
-        // ── Draw detected stacks ─────────────────────────────────
-        int stSz = array.size(stacks)
-        int k    = 0
-        while k + 2 < stSz
-            float lo  = array.get(stacks, k)
-            float hi  = array.get(stacks, k + 1)
-            float dir = array.get(stacks, k + 2)
-            color c   = dir > 0.0 ? i_siColB : i_siColS
-            float mid = (hi + lo) / 2.0
+        if buyCluster or sellCluster
+            color c    = buyCluster ? i_siColB : i_siColS
+            float zHi  = siPoc.up_price()
+            float zLo  = siPoc.down_price()
+            float zMid = pocMid
 
             if array.size(si_bx) >= 12
                 box.delete(array.shift(si_bx))
                 label.delete(array.shift(si_lb))
                 array.shift(si_lvl)
 
-            array.push(si_bx, box.new(bar_index, hi, bar_index + i_ext, lo,
+            array.push(si_bx, box.new(bar_index, zHi, bar_index + i_ext, zLo,
                  bgcolor=color.new(c, 82), border_color=color.new(c, 48)))
-            array.push(si_lb, label.new(bar_index + i_ext + 1, mid,
-                 text=(dir > 0.0 ? "SI▲" : "SI▼"), style=label.style_none,
-                 textcolor=c, size=size.tiny))
-            array.push(si_lvl, mid)
-            k += 3
+            array.push(si_lb, label.new(bar_index + i_ext + 1, zMid,
+                 text=(buyCluster ? "SI▲" : "SI▼"),
+                 style=label.style_none, textcolor=c, size=size.tiny))
+            array.push(si_lvl, zMid)
 
 // ══════════════════════════════════════════════════════════════════
 //  ABSORPTION — large delta + narrow range = hidden limit orders
