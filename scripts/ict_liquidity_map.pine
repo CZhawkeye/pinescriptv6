@@ -44,15 +44,15 @@ i_htfSty = input.string("dashed", "HTF Style",     options=["solid","dashed","do
 i_swSty  = input.string("dotted", "Swing Style",   options=["solid","dashed","dotted"], group=grpClr)
 
 grpVis = "Visual"
-i_ext  = input.int(30,     "Extend Right (bars)",minval=5, maxval=200,group=grpVis)
-i_zPct = input.float(0.10, "Zone Height (%)",minval=0.02, maxval=0.5,group=grpVis, step=0.01)
+i_ext    = input.int(30, "Extend Right (bars)", minval=5,  maxval=200, group=grpVis)
+i_zTicks = input.int(3,  "Zone Height (ticks)", minval=1,  maxval=20,  group=grpVis)
 
 // ══════════════════════════════════════════════════════════════════
 //  HELPERS
 // ══════════════════════════════════════════════════════════════════
 
 priceStr(p) => str.tostring(p, format.mintick)
-zoneH(p)    => p * i_zPct / 100.0
+zoneH(_p)   => float(syminfo.mintick * i_zTicks)
 
 styleOf(s) =>
     s == "dashed" ? line.style_dashed : s == "dotted" ? line.style_dotted : line.style_solid
@@ -359,11 +359,19 @@ if barstate.islast
     array.clear(dynLbls)
 
     float norm   = math.max(close * 0.01, 1.0)
+    float minGap = ta.atr(14) * 0.5   // minimum price gap between labels
     int   magIdH = -1
     int   magIdL = -1
     float bestH  = 0.0
     float bestL  = 0.0
     int   r      = bar_index + i_ext + 1
+
+    // Pending label data (collected first, placed after dedup)
+    array<float>  pLvl = array.new<float>()
+    array<string> pTxt = array.new<string>()
+    array<color>  pClr = array.new<color>()
+    array<string> pSz  = array.new<string>()
+    array<int>    pPri = array.new<int>()   // 10=target, 5=EQ, 1=regular
 
     // ── BSL zones ───────────────────────────────────────────────
     if shSz > 0
@@ -375,6 +383,7 @@ if barstate.islast
                 score = tch + fp / norm + (isEQ ? 5.0 : 0.0)
                 ln    = array.get(sh_ln, i)
                 bx    = array.get(sh_bx, i)
+                lvl   = array.get(sh_lvl, i)
 
                 if score > bestH
                     bestH  := score
@@ -386,10 +395,11 @@ if barstate.islast
                     line.set_style(ln, styleOf(i_eqSty))
                     box.set_bgcolor(bx, color.new(i_eqhCol, 88))
                     box.set_border_color(bx, color.new(i_eqhCol, 60))
-                    array.push(dynLbls, label.new(r, array.get(sh_lvl, i),
-                         text="EQH  " + priceStr(array.get(sh_lvl, i)),
-                         style=label.style_none, textcolor=color.new(i_eqhCol, 0),
-                         size=size.small))
+                    array.push(pLvl, lvl)
+                    array.push(pTxt, "EQH  " + priceStr(lvl))
+                    array.push(pClr, color.new(i_eqhCol, 0))
+                    array.push(pSz,  size.small)
+                    array.push(pPri, 5)
                 else
                     fade = math.max(70 - tch * 5, 30)
                     line.set_color(ln, color.new(i_bslCol, fade))
@@ -407,6 +417,7 @@ if barstate.islast
                 score = tch + fp / norm + (isEQ ? 5.0 : 0.0)
                 ln    = array.get(sl_ln, i)
                 bx    = array.get(sl_bx, i)
+                lvl   = array.get(sl_lvl, i)
 
                 if score > bestL
                     bestL  := score
@@ -418,10 +429,11 @@ if barstate.islast
                     line.set_style(ln, styleOf(i_eqSty))
                     box.set_bgcolor(bx, color.new(i_eqlCol, 88))
                     box.set_border_color(bx, color.new(i_eqlCol, 60))
-                    array.push(dynLbls, label.new(r, array.get(sl_lvl, i),
-                         text="EQL  " + priceStr(array.get(sl_lvl, i)),
-                         style=label.style_none, textcolor=color.new(i_eqlCol, 0),
-                         size=size.small))
+                    array.push(pLvl, lvl)
+                    array.push(pTxt, "EQL  " + priceStr(lvl))
+                    array.push(pClr, color.new(i_eqlCol, 0))
+                    array.push(pSz,  size.small)
+                    array.push(pPri, 5)
                 else
                     fade = math.max(70 - tch * 5, 30)
                     line.set_color(ln, color.new(i_sslCol, fade))
@@ -436,6 +448,11 @@ if barstate.islast
         line.set_style(array.get(sh_ln, magIdH), line.style_solid)
         box.set_bgcolor(array.get(sh_bx, magIdH), color.new(i_magCol, 85))
         box.set_border_color(array.get(sh_bx, magIdH), color.new(i_magCol, 40))
+        array.push(pLvl, array.get(sh_lvl, magIdH))
+        array.push(pTxt, "◆ BSL TARGET  " + priceStr(array.get(sh_lvl, magIdH)))
+        array.push(pClr, color.new(i_magCol, 0))
+        array.push(pSz,  size.normal)
+        array.push(pPri, 10)
 
     if magIdL >= 0
         line.set_color(array.get(sl_ln, magIdL), color.new(i_magCol, 0))
@@ -443,18 +460,59 @@ if barstate.islast
         line.set_style(array.get(sl_ln, magIdL), line.style_solid)
         box.set_bgcolor(array.get(sl_bx, magIdL), color.new(i_magCol, 85))
         box.set_border_color(array.get(sl_bx, magIdL), color.new(i_magCol, 40))
+        array.push(pLvl, array.get(sl_lvl, magIdL))
+        array.push(pTxt, "◆ SSL TARGET  " + priceStr(array.get(sl_lvl, magIdL)))
+        array.push(pClr, color.new(i_magCol, 0))
+        array.push(pSz,  size.normal)
+        array.push(pPri, 10)
 
-    // ── TARGET labels ───────────────────────────────────────────
-    if magIdH >= 0
-        magnetLbl := label.new(r, array.get(sh_lvl, magIdH),
-             text="◆ BSL TARGET  " + priceStr(array.get(sh_lvl, magIdH)),
-             style=label.style_none, textcolor=color.new(i_magCol, 0),
-             size=size.normal)
-    if magIdL >= 0
-        array.push(dynLbls, label.new(r, array.get(sl_lvl, magIdL),
-             text="◆ SSL TARGET  " + priceStr(array.get(sl_lvl, magIdL)),
-             style=label.style_none, textcolor=color.new(i_magCol, 0),
-             size=size.normal))
+    // ── Place labels — sort by priority desc, then price desc ────
+    //    Skip any label within minGap of an already-placed one
+    int n = array.size(pLvl)
+    if n > 1
+        // bubble sort: primary key = priority desc, secondary = price desc
+        for pass = 0 to n - 2
+            for j = 0 to n - 2 - pass
+                priJ  = array.get(pPri, j)
+                priJ1 = array.get(pPri, j + 1)
+                lvlJ  = array.get(pLvl, j)
+                lvlJ1 = array.get(pLvl, j + 1)
+                bool doSwap = priJ < priJ1 or (priJ == priJ1 and lvlJ < lvlJ1)
+                if doSwap
+                    float tf = array.get(pLvl, j)
+                    array.set(pLvl, j,  array.get(pLvl, j + 1))
+                    array.set(pLvl, j + 1, tf)
+                    string ts = array.get(pTxt, j)
+                    array.set(pTxt, j,  array.get(pTxt, j + 1))
+                    array.set(pTxt, j + 1, ts)
+                    color tc = array.get(pClr, j)
+                    array.set(pClr, j,  array.get(pClr, j + 1))
+                    array.set(pClr, j + 1, tc)
+                    string tsz = array.get(pSz, j)
+                    array.set(pSz,  j,  array.get(pSz,  j + 1))
+                    array.set(pSz,  j + 1, tsz)
+                    int ti = array.get(pPri, j)
+                    array.set(pPri, j,  array.get(pPri, j + 1))
+                    array.set(pPri, j + 1, ti)
+
+    array<float> placed = array.new<float>()
+    if n > 0
+        for i = 0 to n - 1
+            lvl = array.get(pLvl, i)
+            bool tooClose = false
+            if array.size(placed) > 0
+                for k = 0 to array.size(placed) - 1
+                    if math.abs(lvl - array.get(placed, k)) < minGap
+                        tooClose := true
+                        break
+            if not tooClose
+                lbl = label.new(r, lvl,
+                     text=array.get(pTxt, i),
+                     style=label.style_none,
+                     textcolor=array.get(pClr, i),
+                     size=array.get(pSz, i))
+                array.push(dynLbls, lbl)
+                array.push(placed, lvl)
 
 // ══════════════════════════════════════════════════════════════════
 //  LEGEND
